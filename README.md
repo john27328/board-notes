@@ -4,6 +4,8 @@ Interactive Kanban boards for Obsidian, rendered from a single code block and ba
 
 No cache file. No separate database. Column and card order live in the notes themselves, so everything stays plain-text, git-diffable, and mergeable.
 
+*(Русская версия: [README.ru.md](README.ru.md))*
+
 ## Why
 
 Plugins like [obsidian-projects](https://github.com/marcusolsson/obsidian-projects) keep board state (card order, view config) in a `data.json` cache file inside the plugin folder. That cache can drift from the actual notes, gets corrupted by encoding issues, and doesn't merge cleanly across machines or in git.

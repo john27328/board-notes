@@ -40,8 +40,16 @@ interface BoardState {
 const DEFAULT_STATUS_FIELD = "Статус";
 const DEFAULT_ORDER_FIELD = "Порядок";
 
+interface BoardViewState {
+  hiddenColumns: string[];
+}
+
 export default class BoardNotesPlugin extends Plugin {
+  viewState: Record<string, BoardViewState> = {};
+
   async onload() {
+    this.viewState = ((await this.loadData()) as Record<string, BoardViewState>) ?? {};
+
     this.registerMarkdownCodeBlockProcessor("board", (source, el, ctx) => {
       this.renderBoard(source, el, ctx);
     });
@@ -387,8 +395,11 @@ export default class BoardNotesPlugin extends Plugin {
       return;
     }
 
+    const viewKey = `${ctx.sourcePath}::${cfg.tag}`;
+    const savedHidden = this.viewState[viewKey]?.hiddenColumns ?? [];
+
     const state: BoardState = {
-      hiddenColumns: new Set(),
+      hiddenColumns: new Set(savedHidden),
       activeTags: new Set(),
       activeFacets: new Map(),
       openEditor: null,
@@ -587,9 +598,16 @@ export default class BoardNotesPlugin extends Plugin {
       chip.addEventListener("click", () => {
         if (hidden) state.hiddenColumns.delete(col);
         else state.hiddenColumns.add(col);
+        this.persistHiddenColumns(sourcePath, cfg.tag, state.hiddenColumns);
         this.draw(container, cfg, state, sourcePath);
       });
     });
+  }
+
+  async persistHiddenColumns(sourcePath: string, tag: string, hidden: Set<string>) {
+    const key = `${sourcePath}::${tag}`;
+    this.viewState[key] = { hiddenColumns: Array.from(hidden) };
+    await this.saveData(this.viewState);
   }
 
   drawColumn(
