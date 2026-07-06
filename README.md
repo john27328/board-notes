@@ -100,6 +100,8 @@ All options are read from the YAML inside the ` ```board ` block.
 
 Renders a compact summary of a note's own frontmatter, meant to sit inside the note itself (e.g. inside its template) as a readable alternative to the raw Properties panel.
 
+Every field is click-to-edit — empty ones show a `+ field name` placeholder, filled ones show their value; clicking either turns it into an input (or a textarea for the description/recommendation-style fields), saving on blur or Enter, with Escape to cancel. This is the primary way to fill in or fix a field once you've hidden the Properties panel.
+
 ````markdown
 ```card
 fields:
