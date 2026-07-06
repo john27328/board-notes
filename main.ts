@@ -194,51 +194,60 @@ export default class BoardNotesPlugin extends Plugin {
     const draw = () => {
       container.empty();
       const fm = this.app.metadataCache.getFileCache(file)?.frontmatter ?? {};
-      const rendered: string[] = [];
 
       fields.forEach((field) => {
         const value = fm[field];
-        if (value == null || value === "") return;
+        const hasValue = value != null && value !== "";
 
         if (field === ratingField) {
-          container.createDiv({ cls: "bn-card-rating", text: `★ ${value}` });
-          rendered.push(field);
+          const el = container.createDiv({ cls: "bn-card-rating" });
+          el.setText(hasValue ? `★ ${value}` : `+ ${(labels[field] ?? field).toLowerCase()}`);
+          if (!hasValue) el.addClass("bn-card-placeholder");
+          this.makeFieldEditable(el, file, field, hasValue ? String(value) : "", false, draw);
           return;
         }
 
         if (field === linkField) {
-          if (typeof value === "string" && /^https?:\/\//.test(value)) {
-            container.createEl("a", {
-              cls: "bn-card-link",
-              text: linkLabel,
-              href: value,
+          const row = container.createDiv({ cls: "bn-card-link-row" });
+          if (hasValue && typeof value === "string" && /^https?:\/\//.test(value)) {
+            row.createEl("a", { cls: "bn-card-link", text: linkLabel, href: value });
+            const editBtn = row.createSpan({ cls: "bn-card-link-edit", text: "✎" });
+            this.makeFieldEditable(editBtn, file, field, String(value), false, draw);
+          } else {
+            const el = row.createSpan({
+              cls: "bn-card-link bn-card-placeholder",
+              text: `+ ${(labels[field] ?? field).toLowerCase()}`,
             });
-            rendered.push(field);
+            this.makeFieldEditable(el, file, field, "", false, draw);
           }
           return;
         }
 
         if (field === recField) {
-          container.createDiv({ cls: "bn-card-rec", text: String(value) });
-          rendered.push(field);
+          const el = container.createDiv({ cls: "bn-card-rec" });
+          el.setText(hasValue ? String(value) : `+ ${(labels[field] ?? field).toLowerCase()}`);
+          if (!hasValue) el.addClass("bn-card-placeholder");
+          this.makeFieldEditable(el, file, field, hasValue ? String(value) : "", true, draw);
           return;
         }
 
         if (labels[field]) {
           const meta = container.createDiv({ cls: "bn-card-labeled" });
           meta.createSpan({ cls: "bn-card-label", text: labels[field] });
-          meta.createSpan({ cls: "bn-card-label-value", text: String(value) });
-          rendered.push(field);
+          const valueEl = meta.createSpan({
+            cls: "bn-card-label-value",
+            text: hasValue ? String(value) : "—",
+          });
+          if (!hasValue) valueEl.addClass("bn-card-placeholder");
+          this.makeFieldEditable(valueEl, file, field, hasValue ? String(value) : "", false, draw);
           return;
         }
 
-        container.createDiv({ cls: "bn-card-desc", text: String(value) });
-        rendered.push(field);
+        const el = container.createDiv({ cls: "bn-card-desc" });
+        el.setText(hasValue ? String(value) : `+ ${field.toLowerCase()}`);
+        if (!hasValue) el.addClass("bn-card-placeholder");
+        this.makeFieldEditable(el, file, field, hasValue ? String(value) : "", true, draw);
       });
-
-      if (!rendered.length) {
-        container.createDiv({ cls: "bn-card-empty", text: "Поля не заполнены." });
-      }
     };
 
     draw();
@@ -247,6 +256,64 @@ export default class BoardNotesPlugin extends Plugin {
       if (changed.path === file.path) draw();
     });
     this.registerEvent(evtRef);
+  }
+
+  makeFieldEditable(
+    el: HTMLElement,
+    file: TFile,
+    field: string,
+    currentValue: string,
+    multiline: boolean,
+    onCancel: () => void
+  ) {
+    el.addClass("bn-card-editable");
+    el.setAttr("tabindex", "0");
+
+    const startEdit = () => {
+      if (el.querySelector("input,textarea")) return;
+      el.empty();
+      el.removeClass("bn-card-placeholder");
+
+      const inputEl = multiline
+        ? (el.createEl("textarea", { cls: "bn-card-edit-input" }) as HTMLTextAreaElement)
+        : (el.createEl("input", { cls: "bn-card-edit-input", type: "text" }) as HTMLInputElement);
+      inputEl.value = currentValue;
+      inputEl.addEventListener("click", (e) => e.stopPropagation());
+      inputEl.addEventListener("dragstart", (e) => e.stopPropagation());
+      inputEl.focus();
+      if (!multiline) (inputEl as HTMLInputElement).select();
+
+      let settled = false;
+      const save = async () => {
+        if (settled) return;
+        settled = true;
+        const v = inputEl.value;
+        await this.app.fileManager.processFrontMatter(file, (fm) => {
+          fm[field] = v;
+        });
+      };
+
+      inputEl.addEventListener("blur", save);
+      inputEl.addEventListener("keydown", (e) => {
+        if (e.key === "Enter" && !multiline) {
+          e.preventDefault();
+          inputEl.blur();
+        }
+        if (e.key === "Escape") {
+          e.preventDefault();
+          settled = true;
+          onCancel();
+        }
+      });
+    };
+
+    el.addEventListener("click", startEdit);
+    el.addEventListener("keydown", (e) => {
+      if ((e.key === "Enter" || e.key === " ") && !el.querySelector("input,textarea")) {
+        e.preventDefault();
+        startEdit();
+      }
+    });
   }
 
   renderVocabEditor(

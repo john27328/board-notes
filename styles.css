@@ -290,6 +290,57 @@
   font-style: italic;
 }
 
+.bn-card-editable {
+  cursor: text;
+  border-radius: 4px;
+  padding: 2px 4px;
+  margin: -2px -4px;
+  transition: background 0.1s ease;
+}
+
+.bn-card-editable:hover {
+  background: var(--background-modifier-hover);
+}
+
+.bn-card-placeholder {
+  color: var(--text-faint);
+  font-style: italic;
+}
+
+.bn-card-edit-input {
+  width: 100%;
+  font: inherit;
+  color: inherit;
+  background: var(--background-primary);
+  border: 1px solid var(--interactive-accent);
+  border-radius: 3px;
+  padding: 2px 6px;
+  resize: vertical;
+}
+
+textarea.bn-card-edit-input {
+  min-height: 4em;
+}
+
+.bn-card-link-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.bn-card-link-edit {
+  cursor: pointer;
+  color: var(--text-faint);
+  font-size: 0.85em;
+  border-radius: 4px;
+  padding: 2px 4px;
+}
+
+.bn-card-link-edit:hover {
+  background: var(--background-modifier-hover);
+  color: var(--text-normal);
+}
+
 .bn-edit-panel-inline {
   border: none;
   padding: 0;
