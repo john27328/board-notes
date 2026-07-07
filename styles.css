@@ -173,6 +173,21 @@
   margin-top: 2px;
 }
 
+.bn-card-tags-display {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 6px;
+}
+
+.bn-card-tag-chip {
+  font-size: 0.72em;
+  padding: 1px 7px;
+  border-radius: 100px;
+  background: var(--background-secondary);
+  color: var(--text-muted);
+}
+
 .bn-edit-toggle {
   font-size: 0.74em;
   color: var(--text-faint);

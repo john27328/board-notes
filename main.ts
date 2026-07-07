@@ -744,6 +744,22 @@ export default class BoardNotesPlugin extends Plugin {
 
     const vocabFields = Object.keys(cfg.vocab).filter((f) => cfg.vocab[f].length);
     if (vocabFields.length) {
+      const currentValues: string[] = [];
+      vocabFields.forEach((f) => {
+        const vals = cfg.single.includes(f)
+          ? c.fm[f] != null && c.fm[f] !== ""
+            ? [String(c.fm[f])]
+            : []
+          : this.fieldValues(c.fm, f);
+        currentValues.push(...vals);
+      });
+      if (currentValues.length) {
+        const tagsRow = card.createDiv({ cls: "bn-card-tags-display" });
+        currentValues.forEach((v) => {
+          tagsRow.createSpan({ cls: "bn-card-tag-chip", text: v });
+        });
+      }
+
       const isOpen = state.openEditor === c.file.path;
       const editLabel = vocabFields.map((f) => f.toLowerCase()).join(" / ");
 
