@@ -95,6 +95,8 @@ All options are read from the YAML inside the ` ```board ` block.
 | `vocab` | map of string → string[] | `{}` | Controlled vocabulary per field. Any field listed here gets an editable chip panel (in the ` ```tags ` block, in the vocab command/modal, and inline on each card) restricted to these values. |
 | `single` | string[] | `[]` | Subset of `vocab` field names that hold a single scalar value (not a list) — e.g. a priority or type field. Editing these replaces the value instead of toggling array membership. |
 | `meta` | string[] | `Год`/`Год выпуска` + `Оценка` | Frontmatter fields shown on the card face in the board view. Defaults to year + rating for backward compatibility; set explicitly for boards without those fields. |
+| `showTags` | boolean | `true` | Set to `false` to hide the automatic tag-filter row. Useful when notes carry incidental real Obsidian tags unrelated to the board (e.g. a literal `#include` in a code snippet gets indexed as a tag and shows up as noise). |
+| `flat` | boolean | `false` | Skip Kanban columns entirely and render all matching cards as a single filterable grid. For reference indexes (FAQs, glossaries) that have topic tags but no workflow status — `statusField`/`orderField`/`columns` are ignored when this is set. |
 
 ### `card` block
 
