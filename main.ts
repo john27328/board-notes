@@ -744,6 +744,7 @@ export default class BoardNotesPlugin extends Plugin {
 
     const vocabFields = Object.keys(cfg.vocab).filter((f) => cfg.vocab[f].length);
     if (vocabFields.length) {
+      const boardTagValue = cfg.tag.replace(/^#/, "");
       const currentValues: string[] = [];
       vocabFields.forEach((f) => {
         const vals = cfg.single.includes(f)
@@ -751,7 +752,7 @@ export default class BoardNotesPlugin extends Plugin {
             ? [String(c.fm[f])]
             : []
           : this.fieldValues(c.fm, f);
-        currentValues.push(...vals);
+        currentValues.push(...vals.filter((v) => v !== boardTagValue));
       });
       if (currentValues.length) {
         const tagsRow = card.createDiv({ cls: "bn-card-tags-display" });
