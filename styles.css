@@ -105,6 +105,22 @@
   max-height: 70vh;
 }
 
+.bn-flat-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 10px;
+}
+
+.bn-flat-grid .bn-card {
+  cursor: pointer;
+}
+
+.bn-add-flat {
+  margin-top: 10px;
+  display: inline-block;
+  text-align: left;
+}
+
 .bn-column-header {
   display: flex;
   justify-content: space-between;

@@ -22,6 +22,7 @@ interface BoardConfig {
   single: string[];
   meta: string[];
   showTags: boolean;
+  flat: boolean;
 }
 
 interface Card {
@@ -412,6 +413,7 @@ export default class BoardNotesPlugin extends Plugin {
       single,
       meta,
       showTags: raw.showTags === false ? false : true,
+      flat: raw.flat === true,
     };
   }
 
@@ -537,7 +539,9 @@ export default class BoardNotesPlugin extends Plugin {
       return true;
     });
 
-    const columns = cfg.columns.length
+    const columns = cfg.flat
+      ? []
+      : cfg.columns.length
       ? cfg.columns
       : Array.from(
           new Set(allCards.map((c) => c.fm[cfg.statusField]).filter(Boolean))
@@ -555,12 +559,33 @@ export default class BoardNotesPlugin extends Plugin {
       allCards.length
     );
 
+    if (cfg.flat) {
+      this.drawFlatGrid(container, cfg, state, cards, sourcePath);
+      return;
+    }
+
     const board = container.createDiv({ cls: "bn-board" });
 
     for (const col of columns) {
       if (state.hiddenColumns.has(col)) continue;
       this.drawColumn(board, container, cfg, state, col, cards, sourcePath);
     }
+  }
+
+  drawFlatGrid(
+    container: HTMLElement,
+    cfg: BoardConfig,
+    state: BoardState,
+    cards: Card[],
+    sourcePath: string
+  ) {
+    const grid = container.createDiv({ cls: "bn-flat-grid" });
+    cards.forEach((c) =>
+      this.renderCardEl(grid, cfg, state, c, container, sourcePath, false)
+    );
+
+    const addBtn = container.createDiv({ cls: "bn-add bn-add-flat", text: "+ добавить" });
+    addBtn.addEventListener("click", () => this.createCard(cfg));
   }
 
   drawToolbar(
@@ -656,6 +681,7 @@ export default class BoardNotesPlugin extends Plugin {
       }
     }
 
+    if (!cfg.flat && columns.length) {
     const colRow = toolbar.createDiv({ cls: "bn-row" });
     colRow.createSpan({ cls: "bn-row-label", text: "Колонки" });
     columns.forEach((col) => {
@@ -671,12 +697,88 @@ export default class BoardNotesPlugin extends Plugin {
         this.draw(container, cfg, state, sourcePath);
       });
     });
+    }
   }
 
   async persistHiddenColumns(sourcePath: string, tag: string, hidden: Set<string>) {
     const key = `${sourcePath}::${tag}`;
     this.viewState[key] = { hiddenColumns: Array.from(hidden) };
     await this.saveData(this.viewState);
+  }
+
+  renderCardEl(
+    parent: HTMLElement,
+    cfg: BoardConfig,
+    state: BoardState,
+    c: Card,
+    container: HTMLElement,
+    sourcePath: string,
+    draggable: boolean
+  ): HTMLElement {
+    const card = parent.createDiv({ cls: "bn-card" });
+    card.draggable = draggable;
+    card.dataset.path = c.file.path;
+
+    const title =
+      (cfg.nameField && c.fm[cfg.nameField]) ||
+      c.fm["Название"] ||
+      c.file.basename;
+    card.createDiv({ cls: "bn-card-title", text: String(title) });
+
+    const metaBits: string[] = [];
+    if (cfg.meta.length) {
+      cfg.meta.forEach((field) => {
+        const v = c.fm[field];
+        if (v == null || v === "" || (Array.isArray(v) && !v.length)) return;
+        const display = Array.isArray(v) ? v.map(String).join(", ") : String(v);
+        metaBits.push(field === "Оценка" || field === "оценка" ? `★ ${display}` : display);
+      });
+    } else {
+      const year = c.fm["Год выпуска"] || c.fm["Год"];
+      if (year) metaBits.push(String(year));
+      if (c.fm["Оценка"]) metaBits.push("★ " + c.fm["Оценка"]);
+    }
+    if (metaBits.length) {
+      card.createDiv({ cls: "bn-card-meta", text: metaBits.join(" · ") });
+    }
+
+    const vocabFields = Object.keys(cfg.vocab).filter((f) => cfg.vocab[f].length);
+    if (vocabFields.length) {
+      const isOpen = state.openEditor === c.file.path;
+      const editLabel = vocabFields.map((f) => f.toLowerCase()).join(" / ");
+
+      const editBtn = card.createDiv({
+        cls: "bn-edit-toggle",
+        text: isOpen ? "✕ закрыть" : `✎ ${editLabel}`,
+      });
+      editBtn.setAttr("draggable", "false");
+      editBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        state.openEditor = isOpen ? null : c.file.path;
+        this.draw(container, cfg, state, sourcePath);
+      });
+
+      if (isOpen) {
+        const panel = card.createDiv({ cls: "bn-edit-panel" });
+        panel.setAttr("draggable", "false");
+        panel.addEventListener("click", (e) => e.stopPropagation());
+        this.renderVocabEditor(panel, c.file, cfg.vocab, cfg.single);
+      }
+    }
+
+    card.addEventListener("click", () => {
+      this.app.workspace.getLeaf(false).openFile(c.file);
+    });
+
+    if (draggable) {
+      card.addEventListener("dragstart", (e) => {
+        e.dataTransfer?.setData("text/plain", c.file.path);
+        card.addClass("dragging");
+      });
+      card.addEventListener("dragend", () => card.removeClass("dragging"));
+    }
+
+    return card;
   }
 
   drawColumn(
@@ -705,70 +807,9 @@ export default class BoardNotesPlugin extends Plugin {
 
     const list = colEl.createDiv({ cls: "bn-list" });
 
-    colCards.forEach((c) => {
-      const card = list.createDiv({ cls: "bn-card" });
-      card.draggable = true;
-      card.dataset.path = c.file.path;
-
-      const title =
-        (cfg.nameField && c.fm[cfg.nameField]) ||
-        c.fm["Название"] ||
-        c.file.basename;
-      card.createDiv({ cls: "bn-card-title", text: String(title) });
-
-      const metaBits: string[] = [];
-      if (cfg.meta.length) {
-        cfg.meta.forEach((field) => {
-          const v = c.fm[field];
-          if (v == null || v === "" || (Array.isArray(v) && !v.length)) return;
-          const display = Array.isArray(v) ? v.map(String).join(", ") : String(v);
-          metaBits.push(field === "Оценка" || field === "оценка" ? `★ ${display}` : display);
-        });
-      } else {
-        const year = c.fm["Год выпуска"] || c.fm["Год"];
-        if (year) metaBits.push(String(year));
-        if (c.fm["Оценка"]) metaBits.push("★ " + c.fm["Оценка"]);
-      }
-      if (metaBits.length) {
-        card.createDiv({ cls: "bn-card-meta", text: metaBits.join(" · ") });
-      }
-
-      const vocabFields = Object.keys(cfg.vocab).filter(
-        (f) => cfg.vocab[f].length
-      );
-      if (vocabFields.length) {
-        const isOpen = state.openEditor === c.file.path;
-        const editLabel = vocabFields.map((f) => f.toLowerCase()).join(" / ");
-
-        const editBtn = card.createDiv({
-          cls: "bn-edit-toggle",
-          text: isOpen ? "✕ закрыть" : `✎ ${editLabel}`,
-        });
-        editBtn.setAttr("draggable", "false");
-        editBtn.addEventListener("click", (e) => {
-          e.stopPropagation();
-          state.openEditor = isOpen ? null : c.file.path;
-          this.draw(container, cfg, state, sourcePath);
-        });
-
-        if (isOpen) {
-          const panel = card.createDiv({ cls: "bn-edit-panel" });
-          panel.setAttr("draggable", "false");
-          panel.addEventListener("click", (e) => e.stopPropagation());
-          this.renderVocabEditor(panel, c.file, cfg.vocab, cfg.single);
-        }
-      }
-
-      card.addEventListener("click", () => {
-        this.app.workspace.getLeaf(false).openFile(c.file);
-      });
-
-      card.addEventListener("dragstart", (e) => {
-        e.dataTransfer?.setData("text/plain", c.file.path);
-        card.addClass("dragging");
-      });
-      card.addEventListener("dragend", () => card.removeClass("dragging"));
-    });
+    colCards.forEach((c) =>
+      this.renderCardEl(list, cfg, state, c, container, sourcePath, true)
+    );
 
     const addBtn = colEl.createDiv({ cls: "bn-add", text: "+ добавить" });
     addBtn.addEventListener("click", () => this.createCard(cfg, col));
@@ -844,7 +885,7 @@ export default class BoardNotesPlugin extends Plugin {
     }
   }
 
-  async createCard(cfg: BoardConfig, status: string) {
+  async createCard(cfg: BoardConfig, status?: string) {
     const folder = cfg.folder ?? "/";
     const base = "Новая заметка";
     let name = base;
@@ -855,16 +896,22 @@ export default class BoardNotesPlugin extends Plugin {
     }
     const path = `${folder}/${name}.md`;
 
-    let content = `---\n${cfg.statusField}: ${status}\n---\n${cfg.tag}\n`;
+    let content = status
+      ? `---\n${cfg.statusField}: ${status}\n---\n${cfg.tag}\n`
+      : `---\n---\n${cfg.tag}\n`;
 
     if (cfg.template) {
       const tpl = this.app.vault.getAbstractFileByPath(cfg.template);
       if (tpl instanceof TFile) {
         const tplContent = await this.app.vault.read(tpl);
-        const statusLineRe = new RegExp(`^${cfg.statusField}:.*$`, "m");
-        content = statusLineRe.test(tplContent)
-          ? tplContent.replace(statusLineRe, `${cfg.statusField}: ${status}`)
-          : tplContent;
+        if (status) {
+          const statusLineRe = new RegExp(`^${cfg.statusField}:.*$`, "m");
+          content = statusLineRe.test(tplContent)
+            ? tplContent.replace(statusLineRe, `${cfg.statusField}: ${status}`)
+            : tplContent;
+        } else {
+          content = tplContent;
+        }
       } else {
         new Notice(`board-notes: шаблон не найден — ${cfg.template}`);
       }
