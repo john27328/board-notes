@@ -585,7 +585,7 @@ export default class BoardNotesPlugin extends Plugin {
     );
 
     const addBtn = container.createDiv({ cls: "bn-add bn-add-flat", text: "+ добавить" });
-    addBtn.addEventListener("click", () => this.createCard(cfg));
+    addBtn.addEventListener("click", () => this.createCard(cfg, cards));
   }
 
   drawToolbar(
@@ -829,7 +829,7 @@ export default class BoardNotesPlugin extends Plugin {
     );
 
     const addBtn = colEl.createDiv({ cls: "bn-add", text: "+ добавить" });
-    addBtn.addEventListener("click", () => this.createCard(cfg, col));
+    addBtn.addEventListener("click", () => this.createCard(cfg, cards, col));
 
     list.addEventListener("dragover", (e) => {
       e.preventDefault();
@@ -902,7 +902,36 @@ export default class BoardNotesPlugin extends Plugin {
     }
   }
 
-  async createCard(cfg: BoardConfig, status?: string) {
+  nextOrder(cfg: BoardConfig, cards: Card[], status?: string): number {
+    const relevant = status
+      ? cards.filter((c) => (c.fm[cfg.statusField] ?? "") === status)
+      : cards;
+    const maxOrder = relevant.reduce((max, c) => {
+      const v = Number(c.fm[cfg.orderField]);
+      return Number.isFinite(v) && v > max ? v : max;
+    }, 0);
+    return maxOrder + 1;
+  }
+
+  setFrontmatterField(content: string, field: string, value: string): string {
+    const fmMatch = content.match(/^---\n([\s\S]*?)\n---/);
+    const fieldLineRe = new RegExp(`^${field}:.*$`, "m");
+
+    if (!fmMatch) {
+      return `---\n${field}: ${value}\n---\n${content}`;
+    }
+
+    if (fieldLineRe.test(fmMatch[1])) {
+      return content.replace(
+        new RegExp(`^(${field}:).*$`, "m"),
+        `$1 ${value}`
+      );
+    }
+
+    return content.replace(/^---\n/, `---\n${field}: ${value}\n`);
+  }
+
+  async createCard(cfg: BoardConfig, cards: Card[], status?: string) {
     const folder = cfg.folder ?? "/";
     const base = "Новая заметка";
     let name = base;
@@ -933,6 +962,9 @@ export default class BoardNotesPlugin extends Plugin {
         new Notice(`board-notes: шаблон не найден — ${cfg.template}`);
       }
     }
+
+    const order = this.nextOrder(cfg, cards, status);
+    content = this.setFrontmatterField(content, cfg.orderField, String(order));
 
     try {
       const file = await this.app.vault.create(path, content);
