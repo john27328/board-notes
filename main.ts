@@ -21,6 +21,7 @@ interface BoardConfig {
   vocab: Record<string, string[]>;
   single: string[];
   meta: string[];
+  showTags: boolean;
 }
 
 interface Card {
@@ -410,6 +411,7 @@ export default class BoardNotesPlugin extends Plugin {
       vocab,
       single,
       meta,
+      showTags: raw.showTags === false ? false : true,
     };
   }
 
@@ -598,7 +600,7 @@ export default class BoardNotesPlugin extends Plugin {
       }
     });
 
-    if (otherTags.size) {
+    if (cfg.showTags && otherTags.size) {
       const tagRow = toolbar.createDiv({ cls: "bn-row" });
       tagRow.createSpan({ cls: "bn-row-label", text: "Теги" });
       Array.from(otherTags)
@@ -718,8 +720,9 @@ export default class BoardNotesPlugin extends Plugin {
       if (cfg.meta.length) {
         cfg.meta.forEach((field) => {
           const v = c.fm[field];
-          if (v == null || v === "") return;
-          metaBits.push(field === "Оценка" || field === "оценка" ? `★ ${v}` : String(v));
+          if (v == null || v === "" || (Array.isArray(v) && !v.length)) return;
+          const display = Array.isArray(v) ? v.map(String).join(", ") : String(v);
+          metaBits.push(field === "Оценка" || field === "оценка" ? `★ ${display}` : display);
         });
       } else {
         const year = c.fm["Год выпуска"] || c.fm["Год"];
