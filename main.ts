@@ -738,10 +738,11 @@ export default class BoardNotesPlugin extends Plugin {
       );
       if (vocabFields.length) {
         const isOpen = state.openEditor === c.file.path;
+        const editLabel = vocabFields.map((f) => f.toLowerCase()).join(" / ");
 
         const editBtn = card.createDiv({
           cls: "bn-edit-toggle",
-          text: isOpen ? "✕ закрыть" : "✎ теги / жанры",
+          text: isOpen ? "✕ закрыть" : `✎ ${editLabel}`,
         });
         editBtn.setAttr("draggable", "false");
         editBtn.addEventListener("click", (e) => {
