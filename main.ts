@@ -5,6 +5,7 @@ import {
   Plugin,
   TFile,
   parseYaml,
+  stringifyYaml,
   Notice,
 } from "obsidian";
 
@@ -23,6 +24,7 @@ interface BoardConfig {
   meta: string[];
   showTags: boolean;
   flat: boolean;
+  raw: string;
 }
 
 interface Card {
@@ -92,6 +94,12 @@ export default class BoardNotesPlugin extends Plugin {
         );
       })
     );
+
+    this.addCommand({
+      id: "create-new-board",
+      name: "Создать новую доску",
+      callback: () => new NewBoardModal(this.app, this).open(),
+    });
   }
 
   async findVocabForFile(file: TFile): Promise<{
@@ -486,6 +494,7 @@ export default class BoardNotesPlugin extends Plugin {
       meta,
       showTags: raw.showTags === false ? false : true,
       flat: raw.flat === true,
+      raw: source,
     };
   }
 
@@ -527,7 +536,7 @@ export default class BoardNotesPlugin extends Plugin {
   }
 
   renderBoard(source: string, el: HTMLElement, ctx: MarkdownPostProcessorContext) {
-    const cfg = this.parseConfig(source);
+    let cfg = this.parseConfig(source);
     const container = el.createDiv({ cls: "board-notes" });
 
     if (!cfg.tag) {
@@ -538,28 +547,47 @@ export default class BoardNotesPlugin extends Plugin {
       return;
     }
 
-    const viewKey = `${ctx.sourcePath}::${cfg.tag}`;
-    const savedHidden = this.viewState[viewKey]?.hiddenColumns ?? [];
-
     const state: BoardState = {
-      hiddenColumns: new Set(savedHidden),
+      hiddenColumns: new Set(),
       activeTags: new Set(),
       activeFacets: new Map(),
       openEditor: null,
       searchQuery: "",
     };
+    const loadHidden = () => {
+      const viewKey = `${ctx.sourcePath}::${cfg.tag}`;
+      state.hiddenColumns = new Set(this.viewState[viewKey]?.hiddenColumns ?? []);
+    };
+    loadHidden();
 
-    const redraw = () => this.draw(container, cfg, state, ctx.sourcePath);
+    const openSettings = () => {
+      new BoardSettingsModal(this.app, this, cfg, ctx.sourcePath).open();
+    };
+
+    const redraw = () => this.draw(container, cfg, state, ctx.sourcePath, openSettings);
     redraw();
 
-    const evtRef = this.app.metadataCache.on("changed", redraw);
+    const evtRef = this.app.metadataCache.on("changed", async (changed) => {
+      if (changed.path === ctx.sourcePath) {
+        const fresh = await this.app.vault.cachedRead(changed);
+        const matches = Array.from(fresh.matchAll(/```board\n([\s\S]*?)\n```/g));
+        const match = matches
+          .map((m) => this.parseConfig(m[1]))
+          .find((c) => c.tag === cfg.tag);
+        if (match) {
+          cfg = match;
+          loadHidden();
+        }
+      }
+      redraw();
+    });
     this.registerEvent(evtRef);
 
     const deleteRef = this.app.vault.on("delete", redraw);
     this.registerEvent(deleteRef);
   }
 
-  draw(container: HTMLElement, cfg: BoardConfig, state: BoardState, sourcePath: string) {
+  draw(container: HTMLElement, cfg: BoardConfig, state: BoardState, sourcePath: string, onSettings?: () => void) {
     container.empty();
 
     const allCards = this.getCards(cfg, sourcePath);
@@ -628,7 +656,8 @@ export default class BoardNotesPlugin extends Plugin {
       facetValues,
       sourcePath,
       cards.length,
-      allCards.length
+      allCards.length,
+      onSettings
     );
 
     if (cfg.flat) {
@@ -669,11 +698,19 @@ export default class BoardNotesPlugin extends Plugin {
     facetValues: Map<string, Set<string>>,
     sourcePath: string,
     matched: number,
-    total: number
+    total: number,
+    onSettings?: () => void
   ) {
     const toolbar = container.createDiv({ cls: "bn-toolbar" });
 
     const searchRow = toolbar.createDiv({ cls: "bn-row bn-search-row" });
+
+    if (onSettings) {
+      const settingsBtn = searchRow.createDiv({ cls: "bn-settings-btn", text: "⚙" });
+      settingsBtn.setAttr("aria-label", "Настройки доски");
+      settingsBtn.addEventListener("click", onSettings);
+    }
+
     const searchInput = searchRow.createEl("input", {
       cls: "bn-search-input",
       type: "text",
@@ -1045,6 +1082,78 @@ export default class BoardNotesPlugin extends Plugin {
       new Notice("board-notes: не удалось создать заметку — " + e);
     }
   }
+
+  serializeConfig(cfg: BoardConfig): string {
+    const obj: Record<string, any> = { tag: cfg.tag };
+    if (cfg.folder) obj.folder = cfg.folder;
+    if (cfg.template) obj.template = cfg.template;
+    if (cfg.nameField) obj.nameField = cfg.nameField;
+    if (cfg.exclude.length) obj.exclude = cfg.exclude;
+    if (cfg.statusField !== DEFAULT_STATUS_FIELD) obj.statusField = cfg.statusField;
+    if (cfg.orderField !== DEFAULT_ORDER_FIELD) obj.orderField = cfg.orderField;
+    if (cfg.showTags === false) obj.showTags = false;
+    if (cfg.flat) obj.flat = true;
+    if (cfg.meta.length) obj.meta = cfg.meta;
+    if (cfg.facets.length) obj.facets = cfg.facets;
+    if (Object.keys(cfg.vocab).length) obj.vocab = cfg.vocab;
+    if (cfg.single.length) obj.single = cfg.single;
+    if (cfg.columns.length) obj.columns = cfg.columns;
+    return stringifyYaml(obj).trimEnd();
+  }
+
+  async saveBoardConfig(boardPath: string, oldRaw: string, cfg: BoardConfig): Promise<string> {
+    const newRaw = this.serializeConfig(cfg);
+    const file = this.app.vault.getAbstractFileByPath(boardPath);
+    if (!(file instanceof TFile)) throw new Error(`Файл не найден: ${boardPath}`);
+    const content = await this.app.vault.read(file);
+    const needle = "```board\n" + oldRaw + "\n```";
+    if (!content.includes(needle)) {
+      throw new Error("Не удалось найти исходный блок доски для замены (он уже изменился?)");
+    }
+    const updated = content.replace(needle, "```board\n" + newRaw + "\n```");
+    await this.app.vault.modify(file, updated);
+    return newRaw;
+  }
+
+  async renameStatusAcrossCards(cfg: BoardConfig, boardPath: string, oldValue: string, newValue: string): Promise<number> {
+    const cards = this.getCards(cfg, boardPath);
+    let n = 0;
+    for (const c of cards) {
+      if (String(c.fm[cfg.statusField] ?? "") === oldValue) {
+        await this.app.fileManager.processFrontMatter(c.file, (fm) => {
+          fm[cfg.statusField] = newValue;
+        });
+        n++;
+      }
+    }
+    return n;
+  }
+
+  async renameVocabValueAcrossCards(cfg: BoardConfig, boardPath: string, field: string, oldValue: string, newValue: string): Promise<number> {
+    const cards = this.getCards(cfg, boardPath);
+    const isSingle = cfg.single.includes(field);
+    let n = 0;
+    for (const c of cards) {
+      const v = c.fm[field];
+      if (isSingle) {
+        if (String(v ?? "") === oldValue) {
+          await this.app.fileManager.processFrontMatter(c.file, (fm) => {
+            fm[field] = newValue;
+          });
+          n++;
+        }
+      } else {
+        const arr = Array.isArray(v) ? v.map(String) : v != null && v !== "" ? [String(v)] : [];
+        if (arr.includes(oldValue)) {
+          await this.app.fileManager.processFrontMatter(c.file, (fm) => {
+            fm[field] = arr.map((x) => (x === oldValue ? newValue : x));
+          });
+          n++;
+        }
+      }
+    }
+    return n;
+  }
 }
 
 class VocabModal extends Modal {
@@ -1073,5 +1182,320 @@ class VocabModal extends Modal {
 
   onClose() {
     this.contentEl.empty();
+  }
+}
+
+interface EditableRow {
+  original: string; // "" for a freshly-added row
+  input: HTMLInputElement;
+  row: HTMLElement;
+  deleted: boolean;
+}
+
+class BoardSettingsModal extends Modal {
+  private folderInput!: HTMLInputElement;
+  private templateInput!: HTMLInputElement;
+  private columnRows: EditableRow[] = [];
+  private vocabRows: Map<string, EditableRow[]> = new Map();
+  private vocabFieldOrder: string[] = [];
+
+  constructor(
+    app: App,
+    private plugin: BoardNotesPlugin,
+    private cfg: BoardConfig,
+    private boardPath: string
+  ) {
+    super(app);
+  }
+
+  onOpen() {
+    this.render();
+  }
+
+  onClose() {
+    this.contentEl.empty();
+  }
+
+  private makeEditableList(
+    container: HTMLElement,
+    values: string[],
+    onDelete: (row: EditableRow) => void
+  ): EditableRow[] {
+    const rows: EditableRow[] = [];
+    const list = container.createDiv({ cls: "bn-settings-list" });
+
+    const addRow = (value: string) => {
+      const row = list.createDiv({ cls: "bn-settings-row" });
+      const input = row.createEl("input", { type: "text", value }) as HTMLInputElement;
+      const del = row.createSpan({ cls: "bn-settings-del", text: "×" });
+      const entry: EditableRow = { original: value, input, row, deleted: false };
+      del.addEventListener("click", () => {
+        entry.deleted = true;
+        row.style.display = "none";
+        onDelete(entry);
+      });
+      rows.push(entry);
+      return entry;
+    };
+
+    values.forEach((v) => addRow(v));
+
+    const addBtn = container.createDiv({ cls: "bn-settings-add", text: "+ добавить" });
+    addBtn.addEventListener("click", () => addRow(""));
+
+    return rows;
+  }
+
+  render() {
+    const { contentEl } = this;
+    contentEl.empty();
+    contentEl.addClass("bn-settings-modal");
+
+    contentEl.createEl("h3", { text: `Настройки доски — ${this.cfg.tag}` });
+    contentEl.createEl("p", {
+      cls: "bn-settings-hint",
+      text: `Файл доски: ${this.boardPath}`,
+    });
+
+    // Папка
+    contentEl.createEl("label", { text: "Папка для новых карточек" });
+    this.folderInput = contentEl.createEl("input", {
+      type: "text",
+      value: this.cfg.folder ?? "",
+    }) as HTMLInputElement;
+
+    // Шаблон
+    contentEl.createEl("label", { text: "Путь к шаблону" });
+    const tplRow = contentEl.createDiv({ cls: "bn-settings-row" });
+    this.templateInput = tplRow.createEl("input", {
+      type: "text",
+      value: this.cfg.template ?? "",
+    }) as HTMLInputElement;
+    const createBtn = tplRow.createEl("button", { text: "+ создать заметку" });
+    createBtn.addEventListener("click", async () => {
+      const cards = this.plugin.getCards(this.cfg, this.boardPath);
+      await this.plugin.createCard(this.cfg, cards);
+      this.close();
+    });
+
+    // Колонки
+    contentEl.createEl("h4", { text: "Колонки" });
+    this.columnRows = this.makeEditableList(contentEl, this.cfg.columns, () => {});
+
+    // Словарь (Метки/Жанры/…)
+    contentEl.createEl("h4", { text: "Теги / словарь" });
+    this.vocabFieldOrder = Object.keys(this.cfg.vocab);
+    this.vocabRows.clear();
+    this.vocabFieldOrder.forEach((field) => {
+      const group = contentEl.createDiv({ cls: "bn-settings-group" });
+      group.createEl("div", { cls: "bn-settings-field-name", text: field });
+      const rows = this.makeEditableList(group, this.cfg.vocab[field], () => {});
+      this.vocabRows.set(field, rows);
+    });
+
+    const newFieldRow = contentEl.createDiv({ cls: "bn-settings-row" });
+    const newFieldInput = newFieldRow.createEl("input", {
+      type: "text",
+      placeholder: "имя нового поля (например Приоритет)",
+    }) as HTMLInputElement;
+    const newFieldBtn = newFieldRow.createEl("button", { text: "+ добавить поле" });
+    newFieldBtn.addEventListener("click", () => {
+      const name = newFieldInput.value.trim();
+      if (!name || this.vocabFieldOrder.includes(name)) return;
+      this.vocabFieldOrder.push(name);
+      const group = contentEl.createDiv({ cls: "bn-settings-group" });
+      group.createEl("div", { cls: "bn-settings-field-name", text: name });
+      const rows = this.makeEditableList(group, [], () => {});
+      this.vocabRows.set(name, rows);
+      contentEl.insertBefore(group, newFieldRow);
+      newFieldInput.value = "";
+    });
+
+    // Кнопки
+    const footer = contentEl.createDiv({ cls: "bn-settings-footer" });
+    const saveBtn = footer.createEl("button", { text: "Сохранить", cls: "mod-cta" });
+    const cancelBtn = footer.createEl("button", { text: "Отмена" });
+    cancelBtn.addEventListener("click", () => this.close());
+    saveBtn.addEventListener("click", () => this.save());
+
+    const newBoardBtn = footer.createEl("button", { text: "+ создать новую доску" });
+    newBoardBtn.addEventListener("click", () => {
+      this.close();
+      new NewBoardModal(this.app, this.plugin).open();
+    });
+  }
+
+  async save() {
+    try {
+      const newFolder = this.folderInput.value.trim();
+      const newTemplate = this.templateInput.value.trim();
+
+      const newColumns: string[] = [];
+      const columnRenames: { oldValue: string; newValue: string }[] = [];
+      const deletedColumns: string[] = [];
+      for (const r of this.columnRows) {
+        if (r.deleted) {
+          if (r.original) deletedColumns.push(r.original);
+          continue;
+        }
+        const value = r.input.value.trim();
+        if (!value) continue;
+        newColumns.push(value);
+        if (r.original && r.original !== value) {
+          columnRenames.push({ oldValue: r.original, newValue: value });
+        }
+      }
+
+      const newVocab: Record<string, string[]> = {};
+      const vocabRenames: { field: string; oldValue: string; newValue: string }[] = [];
+      for (const field of this.vocabFieldOrder) {
+        const rows = this.vocabRows.get(field) ?? [];
+        const values: string[] = [];
+        for (const r of rows) {
+          if (r.deleted) continue;
+          const value = r.input.value.trim();
+          if (!value) continue;
+          values.push(value);
+          if (r.original && r.original !== value) {
+            vocabRenames.push({ field, oldValue: r.original, newValue: value });
+          }
+        }
+        newVocab[field] = values;
+      }
+
+      const newCfg: BoardConfig = {
+        ...this.cfg,
+        folder: newFolder || undefined,
+        template: newTemplate || undefined,
+        columns: newColumns,
+        vocab: newVocab,
+      };
+
+      let renamedCount = 0;
+      for (const { oldValue, newValue } of columnRenames) {
+        renamedCount += await this.plugin.renameStatusAcrossCards(this.cfg, this.boardPath, oldValue, newValue);
+      }
+      for (const deleted of deletedColumns) {
+        if (newColumns.length) {
+          renamedCount += await this.plugin.renameStatusAcrossCards(this.cfg, this.boardPath, deleted, newColumns[0]);
+        }
+      }
+      for (const { field, oldValue, newValue } of vocabRenames) {
+        renamedCount += await this.plugin.renameVocabValueAcrossCards(this.cfg, this.boardPath, field, oldValue, newValue);
+      }
+
+      await this.plugin.saveBoardConfig(this.boardPath, this.cfg.raw, newCfg);
+
+      new Notice(
+        renamedCount
+          ? `Настройки сохранены, обновлено карточек: ${renamedCount}`
+          : "Настройки сохранены"
+      );
+      this.close();
+    } catch (e) {
+      new Notice("board-notes: не удалось сохранить настройки — " + e);
+    }
+  }
+}
+
+class NewBoardModal extends Modal {
+  private titleInput!: HTMLInputElement;
+  private noteFolderInput!: HTMLInputElement;
+  private tagInput!: HTMLInputElement;
+  private folderInput!: HTMLInputElement;
+  private templateInput!: HTMLInputElement;
+  private columnsInput!: HTMLTextAreaElement;
+
+  constructor(app: App, private plugin: BoardNotesPlugin) {
+    super(app);
+  }
+
+  onOpen() {
+    this.render();
+  }
+
+  onClose() {
+    this.contentEl.empty();
+  }
+
+  render() {
+    const { contentEl } = this;
+    contentEl.empty();
+    contentEl.addClass("bn-settings-modal");
+    contentEl.createEl("h3", { text: "Новая доска" });
+
+    contentEl.createEl("label", { text: "Название заметки-доски" });
+    this.titleInput = contentEl.createEl("input", { type: "text", value: "Новая доска" }) as HTMLInputElement;
+
+    contentEl.createEl("label", { text: "Папка для самой заметки-доски (пусто — корень)" });
+    this.noteFolderInput = contentEl.createEl("input", { type: "text" }) as HTMLInputElement;
+
+    contentEl.createEl("label", { text: "Тег (например #мойтег)" });
+    this.tagInput = contentEl.createEl("input", { type: "text", placeholder: "#мойтег" }) as HTMLInputElement;
+
+    contentEl.createEl("label", { text: "Папка для карточек" });
+    this.folderInput = contentEl.createEl("input", { type: "text" }) as HTMLInputElement;
+
+    contentEl.createEl("label", { text: "Шаблон (необязательно)" });
+    this.templateInput = contentEl.createEl("input", { type: "text" }) as HTMLInputElement;
+
+    contentEl.createEl("label", { text: "Колонки (по одной на строку, необязательно)" });
+    this.columnsInput = contentEl.createEl("textarea", { attr: { rows: "5" } }) as HTMLTextAreaElement;
+
+    const footer = contentEl.createDiv({ cls: "bn-settings-footer" });
+    const createBtn = footer.createEl("button", { text: "Создать", cls: "mod-cta" });
+    const cancelBtn = footer.createEl("button", { text: "Отмена" });
+    cancelBtn.addEventListener("click", () => this.close());
+    createBtn.addEventListener("click", () => this.create());
+  }
+
+  async create() {
+    const title = this.titleInput.value.trim() || "Новая доска";
+    let tag = this.tagInput.value.trim();
+    if (!tag) {
+      new Notice("board-notes: укажи тег для доски");
+      return;
+    }
+    if (!tag.startsWith("#")) tag = "#" + tag;
+
+    const columns = this.columnsInput.value
+      .split("\n")
+      .map((s) => s.trim())
+      .filter(Boolean);
+
+    const cfg: BoardConfig = {
+      tag,
+      statusField: DEFAULT_STATUS_FIELD,
+      orderField: DEFAULT_ORDER_FIELD,
+      columns,
+      folder: this.folderInput.value.trim() || undefined,
+      template: this.templateInput.value.trim() || undefined,
+      exclude: [],
+      facets: [],
+      vocab: {},
+      single: [],
+      meta: [],
+      showTags: true,
+      flat: false,
+      raw: "",
+    };
+
+    const yaml = this.plugin.serializeConfig(cfg);
+    const noteFolder = this.noteFolderInput.value.trim();
+    const path = (noteFolder ? noteFolder + "/" : "") + title + ".md";
+
+    if (this.app.vault.getAbstractFileByPath(path)) {
+      new Notice(`board-notes: заметка уже существует — ${path}`);
+      return;
+    }
+
+    const content = `# ${title}\n\n\`\`\`board\n${yaml}\n\`\`\`\n`;
+    try {
+      const file = await this.app.vault.create(path, content);
+      this.close();
+      await this.app.workspace.getLeaf(false).openFile(file);
+    } catch (e) {
+      new Notice("board-notes: не удалось создать доску — " + e);
+    }
   }
 }
