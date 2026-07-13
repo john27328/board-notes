@@ -39,6 +39,12 @@ interface BoardState {
   searchQuery: string;
 }
 
+interface BoardStatusInfo {
+  cfg: BoardConfig;
+  columns: string[];
+  boardPath: string;
+}
+
 const DEFAULT_STATUS_FIELD = "Статус";
 const DEFAULT_ORDER_FIELD = "Порядок";
 
@@ -123,6 +129,44 @@ export default class BoardNotesPlugin extends Plugin {
     return { vocab, single: Array.from(single), sources };
   }
 
+  fileTagsFor(file: TFile): string[] {
+    const cache = this.app.metadataCache.getFileCache(file);
+    const fm = cache?.frontmatter ?? {};
+    const inlineTags = (cache?.tags ?? []).map((t) => t.tag);
+    const fmTagsRaw = fm.tags;
+    const fmTags = Array.isArray(fmTagsRaw) ? fmTagsRaw : fmTagsRaw ? [fmTagsRaw] : [];
+    return [
+      ...inlineTags,
+      ...fmTags.map((t: string) => (t.startsWith("#") ? t : "#" + t)),
+    ];
+  }
+
+  async findBoardStatusInfoForFile(file: TFile): Promise<BoardStatusInfo | null> {
+    const fileTags = this.fileTagsFor(file);
+    if (!fileTags.length) return null;
+
+    for (const f of this.app.vault.getMarkdownFiles()) {
+      const content = await this.app.vault.cachedRead(f);
+      const matches = content.matchAll(/```board\n([\s\S]*?)\n```/g);
+      for (const m of matches) {
+        const cfg = this.parseConfig(m[1]);
+        if (!cfg.tag || cfg.flat || !fileTags.includes(cfg.tag)) continue;
+        const columns = cfg.columns.length
+          ? cfg.columns
+          : Array.from(
+              new Set(
+                this.getCards(cfg, f.path)
+                  .map((c) => c.fm[cfg.statusField])
+                  .filter(Boolean)
+                  .map((v) => String(v))
+              )
+            );
+        return { cfg, columns, boardPath: f.path };
+      }
+    }
+    return null;
+  }
+
   async openVocabEditorForFile(file: TFile) {
     const { vocab, single } = await this.findVocabForFile(file);
     if (!Object.keys(vocab).length) {
@@ -190,12 +234,32 @@ export default class BoardNotesPlugin extends Plugin {
             Object.entries(raw.labels).map(([k, v]) => [k, String(v)])
           )
         : {};
+    const showStatus = raw.showStatus !== false;
 
     const container = el.createDiv({ cls: "bn-card-view" });
+
+    let statusInfo: BoardStatusInfo | null = null;
 
     const draw = () => {
       container.empty();
       const fm = this.app.metadataCache.getFileCache(file)?.frontmatter ?? {};
+
+      if (statusInfo) {
+        const current = fm[statusInfo.cfg.statusField];
+        const row = container.createDiv({ cls: "bn-card-status-row" });
+        statusInfo.columns.forEach((col) => {
+          const chip = row.createSpan({
+            cls: "bn-chip bn-status-chip" + (col === current ? " active" : ""),
+            text: col,
+          });
+          chip.addEventListener("click", async () => {
+            if (col === current) return;
+            await this.app.fileManager.processFrontMatter(file, (fm2) => {
+              fm2[statusInfo!.cfg.statusField] = col;
+            });
+          });
+        });
+      }
 
       fields.forEach((field) => {
         const value = fm[field];
@@ -253,6 +317,14 @@ export default class BoardNotesPlugin extends Plugin {
     };
 
     draw();
+
+    if (showStatus) {
+      this.findBoardStatusInfoForFile(file).then((info) => {
+        if (!info) return;
+        statusInfo = info;
+        draw();
+      });
+    }
 
     const evtRef = this.app.metadataCache.on("changed", (changed) => {
       if (changed.path === file.path) draw();

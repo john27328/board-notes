@@ -262,6 +262,12 @@
   margin: 0.8em 0;
 }
 
+.bn-card-status-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
 .bn-card-rating {
   font-size: 1.1em;
   font-weight: 600;
