@@ -22,6 +22,9 @@ Board Notes takes the opposite approach: every board is defined by a single ` ``
 - **Inline tag editor** (` ```tags `) — lets you edit a note's vocabulary-controlled fields from inside the note itself, not just from the board
 - A command and a file-menu entry to edit vocabulary fields for the active note even when no board is open
 - Quick-create notes from a template, pre-filled with the target column's status
+- **Status from the card** (` ```card `) — a row of column chips; clicking one updates `statusField` in frontmatter right there, no need to visit the board
+- **Board settings** (⚙ button in the toolbar) — edit folder, template, columns, and vocab values from a modal; renaming a column or a vocab value batch-updates every card that used the old value
+- **"Create new board" command** — a wizard (tag, folder, template, columns) that generates a ready-to-use ` ```board ` code block in a fresh note
 
 ## Screenshots
 
@@ -128,8 +131,11 @@ labels:
 | `linkLabel` | `"Открыть на Кинопоиске ↗"` if `linkField` is still `Кинопоиск`, else `"Открыть ↗"` | Link text. |
 | `recField` | `Рекомендация` | Rendered in an italic, accent-bordered block. |
 | `labels` | `{}` | Map of field name → display label for any other field in `fields`. Rendered as a small `Label: value` row instead of a full paragraph — use this for short metadata (IDs, counts) rather than prose. Fields in `fields` without a label and not matching one of the roles above are rendered as a plain paragraph (intended for longer text like a description). |
+| `showStatus` | `true` | Set to `false` to hide the status chip row (see below). |
 
 If nothing in `fields` has a value, the block shows a small "нет данных" placeholder instead of staying blank.
+
+If the note's tag matches a (non-`flat`) ` ```board ` board, a row of column chips is rendered above the fields — the active one is highlighted, and clicking another immediately switches the note's `statusField` in frontmatter. The column list comes from the board's `columns`, or, if not set explicitly, from whatever `statusField` values are actually in use, same as on the board itself.
 
 ### `tags` block
 
@@ -141,6 +147,24 @@ If nothing in `fields` has a value, the block shows a small "нет данных
 Takes no configuration. Drop it into any note; it looks across the whole vault for a ` ```board ` block whose `tag` matches one of the current note's tags, and renders an editable chip panel for that board's `vocab` fields — including a small line naming which board/tag it resolved to, so you can confirm it's wired up correctly. If no matching board is found, it shows an error instead of silently doing nothing.
 
 You can also trigger the same editor from any note via the command palette (**Board Notes: Редактировать теги/жанры по словарю доски**) or via right-click → **Теги/жанры по словарю** in the file menu — useful when a note doesn't have the `tags` block in its body.
+
+### Board settings (⚙)
+
+Every non-`flat` board's toolbar has a ⚙ button that opens a settings modal right over the code block, no manual YAML editing required:
+
+- **Folder** and **Template** — same as the `folder`/`template` config keys; a "+ create note" button next to the template field creates a card straight from the modal.
+- **Columns** — one text input per column:
+  - editing the text **renames** the column, and updates `statusField` on every card that had the old value;
+  - the × button deletes a column — any cards that were in it move to the first remaining column instead of disappearing from the board;
+  - "+ add" appends a blank column at the end.
+- **Tags / vocab** — same idea for each `vocab` field: renaming a value batch-updates every card that had it. A field at the bottom lets you add a brand-new vocab field.
+- "Save" rewrites the ` ```board ` code block itself (via `stringifyYaml`) and applies all the renames to cards in one go; the live board re-parses its config and redraws immediately, no need to reopen the note.
+
+You can't rename the board's own `tag` or drag-reorder columns from this modal — see Known limitations.
+
+### Creating a new board
+
+The **Board Notes: Создать новую доску** command (command palette, or the "+ create new board" button at the bottom of the settings modal) opens a wizard: note title, tag, card folder, template (optional), columns (one per line). Hitting "Create" generates a new note with a ready ` ```board ` code block and opens it.
 
 ## How data is stored
 
@@ -156,6 +180,8 @@ Nothing is written outside the notes' own frontmatter. Deleting the plugin leave
 - Reordering persists by rewriting every card's `orderField` in the destination column on drop — fine for boards with tens of cards, potentially slow with many hundreds.
 - No mobile-specific touch drag-and-drop testing has been done.
 - `vocab`/`facets` field names are matched by exact string — frontmatter field renames require updating the board config to match.
+- The settings modal (⚙) can rename column and vocab *values* (with a batch card update), but not the board's own `tag` or field names (`statusField`, `vocab` keys) — those still need a manual code-block edit.
+- Column order isn't drag-reorderable in the settings modal — you can only add/remove/rename; reorder by editing the `columns` list in the code block directly.
 
 ## Contributing
 
