@@ -294,6 +294,22 @@ export default class BoardNotesPlugin extends Plugin {
       const rating = ratingField();
       const rec = recField();
 
+      if (board) {
+        const info = container.createDiv({ cls: "bn-card-board-info" });
+        const boardName = board.boardPath.split("/").pop()?.replace(/\.md$/, "") ?? board.boardPath;
+        const link = info.createSpan({ cls: "bn-card-board-link", text: boardName });
+        link.addEventListener("click", () => {
+          const boardFile = this.app.vault.getAbstractFileByPath(board!.boardPath);
+          if (boardFile instanceof TFile) this.app.workspace.getLeaf(false).openFile(boardFile);
+        });
+        info.createSpan({ cls: "bn-card-board-tag", text: board.cfg.tag });
+        const settingsBtn = info.createSpan({ cls: "bn-card-settings-btn", text: "⚙" });
+        settingsBtn.setAttr("aria-label", "Настройки доски");
+        settingsBtn.addEventListener("click", () => {
+          new BoardSettingsModal(this.app, this, board!.cfg, board!.boardPath).open();
+        });
+      }
+
       if (showStatus && board && !board.cfg.flat) {
         const columns = this.statusColumnsFor(board.cfg, board.boardPath);
         if (columns.length) {
@@ -314,26 +330,30 @@ export default class BoardNotesPlugin extends Plugin {
         }
       }
 
-      currentLinks.forEach((linkCfg) => {
-        const field = linkCfg.field;
-        const value = fm[field];
-        const hasValue = value != null && value !== "";
-        const label =
-          linkCfg.label ??
-          (field === "Кинопоиск" ? "Открыть на Кинопоиске ↗" : `Открыть (${field}) ↗`);
+      if (currentLinks.length) {
         const row = container.createDiv({ cls: "bn-card-link-row" });
-        if (hasValue && typeof value === "string" && /^https?:\/\//.test(value)) {
-          row.createEl("a", { cls: "bn-card-link", text: label, href: value });
-          const editBtn = row.createSpan({ cls: "bn-card-link-edit", text: "✎" });
-          this.makeFieldEditable(editBtn, file, field, String(value), false, draw);
-        } else {
-          const placeholder = row.createSpan({
-            cls: "bn-card-link bn-card-placeholder",
-            text: `+ ${(currentLabels[field] ?? field).toLowerCase()}`,
-          });
-          this.makeFieldEditable(placeholder, file, field, "", false, draw);
-        }
-      });
+        currentLinks.forEach((linkCfg) => {
+          const field = linkCfg.field;
+          const value = fm[field];
+          const hasValue = value != null && value !== "";
+          const label =
+            linkCfg.label ??
+            (field === "Кинопоиск" ? "Открыть на Кинопоиске ↗" : `Открыть (${field}) ↗`);
+          if (hasValue && typeof value === "string" && /^https?:\/\//.test(value)) {
+            const item = row.createSpan({ cls: "bn-card-link-item" });
+            item.createEl("a", { cls: "bn-card-link", text: label, href: value });
+            const editBtn = item.createSpan({ cls: "bn-card-link-edit", text: "✎" });
+            this.makeFieldEditable(editBtn, file, field, String(value), false, draw);
+          } else {
+            const item = row.createSpan({ cls: "bn-card-link-item" });
+            const placeholder = item.createSpan({
+              cls: "bn-card-link bn-card-placeholder",
+              text: `+ ${(currentLabels[field] ?? field).toLowerCase()}`,
+            });
+            this.makeFieldEditable(placeholder, file, field, "", false, draw);
+          }
+        });
+      }
 
       fields().forEach((field) => {
         if (linkFieldNames.has(field)) return;
@@ -373,13 +393,6 @@ export default class BoardNotesPlugin extends Plugin {
         if (!hasValue) el.addClass("bn-card-placeholder");
         this.makeFieldEditable(el, file, field, hasValue ? String(value) : "", true, draw);
       });
-
-      if (board) {
-        const settingsBtn = container.createDiv({ cls: "bn-card-settings-btn", text: "⚙ поля карточки" });
-        settingsBtn.addEventListener("click", () => {
-          new BoardSettingsModal(this.app, this, board!.cfg, board!.boardPath).open();
-        });
-      }
     };
 
     draw();

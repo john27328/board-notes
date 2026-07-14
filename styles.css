@@ -218,12 +218,33 @@
   font-size: 0.74em;
   color: var(--text-faint);
   cursor: pointer;
-  margin-top: 2px;
   display: inline-block;
 }
 
 .bn-card-settings-btn:hover {
   color: var(--text-normal);
+}
+
+.bn-card-board-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.72em;
+  color: var(--text-faint);
+}
+
+.bn-card-board-link {
+  cursor: pointer;
+  text-decoration: underline;
+  text-decoration-style: dotted;
+}
+
+.bn-card-board-link:hover {
+  color: var(--text-normal);
+}
+
+.bn-card-board-tag {
+  color: var(--text-faint);
 }
 
 .bn-edit-panel {
@@ -386,6 +407,13 @@ textarea.bn-card-edit-input {
 }
 
 .bn-card-link-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 14px;
+}
+
+.bn-card-link-item {
   display: flex;
   align-items: center;
   gap: 6px;
