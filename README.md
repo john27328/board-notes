@@ -23,8 +23,9 @@ Board Notes takes the opposite approach: every board is defined by a single ` ``
 - A command and a file-menu entry to edit vocabulary fields for the active note even when no board is open
 - Quick-create notes from a template, pre-filled with the target column's status
 - **Status from the card** (` ```card `) — a row of column chips; clicking one updates `statusField` in frontmatter right there, no need to visit the board
-- **Board settings** (⚙ button in the toolbar) — edit folder, template, columns, and vocab values from a modal; renaming a column or a vocab value batch-updates every card that used the old value
+- **Board settings** (⚙ button in the toolbar) — edit folder, template, columns, vocab values, and the card layout from a modal; renaming a column or a vocab value batch-updates every card that used the old value
 - **"Create new board" command** — a wizard (tag, folder, template, columns) that generates a ready-to-use ` ```board ` code block in a fresh note
+- **Centralized card layout** — define ` ```card ` fields/links/labels once in the board config (`card:`) instead of copy-pasting them into every template and note; supports multiple links at once, not just one
 
 ## Screenshots
 
@@ -100,6 +101,7 @@ All options are read from the YAML inside the ` ```board ` block.
 | `meta` | string[] | `Год`/`Год выпуска` + `Оценка` | Frontmatter fields shown on the card face in the board view. Defaults to year + rating for backward compatibility; set explicitly for boards without those fields. |
 | `showTags` | boolean | `true` | Set to `false` to hide the automatic tag-filter row. Useful when notes carry incidental real Obsidian tags unrelated to the board (e.g. a literal `#include` in a code snippet gets indexed as a tag and shows up as noise). |
 | `flat` | boolean | `false` | Skip Kanban columns entirely and render all matching cards as a single filterable grid. For reference indexes (FAQs, glossaries) that have topic tags but no workflow status — `statusField`/`orderField`/`columns` are ignored when this is set. |
+| `card` | object | `{}` | Centralized settings for the ` ```card ` block (see below) — `fields`, `links`, `labels`, `ratingField`, `recField`. Applied to any note tagged for this board whose own ` ```card ` block is empty. |
 
 ### `card` block
 
@@ -115,8 +117,9 @@ fields:
   - Описание
   - Рекомендация
 ratingField: Оценка
-linkField: Кинопоиск
-linkLabel: "Открыть на Кинопоиске ↗"
+links:
+  - field: Кинопоиск
+    label: "Открыть на Кинопоиске ↗"
 recField: Рекомендация
 labels:
   Id: "ID"
@@ -125,15 +128,39 @@ labels:
 
 | Key | Default | Description |
 |---|---|---|
-| `fields` | `[Оценка, Кинопоиск, Описание, Рекомендация]` | Which frontmatter fields to render, in order. Missing/empty fields are silently skipped. |
+| `fields` | `[Оценка, Кинопоиск, Описание, Рекомендация]` (or the board's `card.fields`) | Which frontmatter fields to render, in order. Missing/empty fields are silently skipped. |
 | `ratingField` | `Оценка` | Rendered as `★ <value>`. |
-| `linkField` | `Кинопоиск` | Rendered as a clickable link if the value looks like a URL. |
-| `linkLabel` | `"Открыть на Кинопоиске ↗"` if `linkField` is still `Кинопоиск`, else `"Открыть ↗"` | Link text. |
+| `links` | `[{field: Кинопоиск}]` | A list of links — each renders as its own row with a clickable link (if the value looks like a URL) and its own edit pencil. Add more than one, e.g. a Pyrus link plus a separate merge-request link. |
+| `linkField` / `linkLabel` | — | Old-style way to set a **single** link — equivalent to `links: [{field: linkField, label: linkLabel}]`. Still works; don't mix `links` and `linkField` in the same block. |
 | `recField` | `Рекомендация` | Rendered in an italic, accent-bordered block. |
 | `labels` | `{}` | Map of field name → display label for any other field in `fields`. Rendered as a small `Label: value` row instead of a full paragraph — use this for short metadata (IDs, counts) rather than prose. Fields in `fields` without a label and not matching one of the roles above are rendered as a plain paragraph (intended for longer text like a description). |
 | `showStatus` | `true` | Set to `false` to hide the status chip row (see below). |
 
 If nothing in `fields` has a value, the block shows a small "нет данных" placeholder instead of staying blank.
+
+#### Centralized configuration
+
+If the note's own ` ```card ` block is **empty** (no `fields`), the plugin looks for a board whose `tag` matches the note's tag and uses its `fields`/`links`/`labels`/`ratingField`/`recField` instead (the `card:` key inside the ` ```board ` block):
+
+````markdown
+```board
+tag: "#book"
+folder: Books
+card:
+  fields:
+    - Оценка
+    - Кинопоиск
+    - Описание
+    - Рекомендация
+  links:
+    - field: Кинопоиск
+      label: "Открыть на Кинопоиске ↗"
+```
+````
+
+That way the template and every note of that type only carry a bare ` ```card ``` `, and the actual field/link list is edited in exactly one place — the board config (by hand, or via the ⚙ button, see below). If one specific note genuinely needs its own layout, just set `fields`/`links` in its own ` ```card ` block — it wins over the centralized config.
+
+A card wired to a board also gets a small "⚙ поля карточки" button at the bottom — opens the same board settings modal, scrolled to the "Карточка" section.
 
 If the note's tag matches a (non-`flat`) ` ```board ` board, a row of column chips is rendered above the fields — the active one is highlighted, and clicking another immediately switches the note's `statusField` in frontmatter. The column list comes from the board's `columns`, or, if not set explicitly, from whatever `statusField` values are actually in use, same as on the board itself.
 
@@ -158,6 +185,7 @@ Every non-`flat` board's toolbar has a ⚙ button that opens a settings modal ri
   - the × button deletes a column — any cards that were in it move to the first remaining column instead of disappearing from the board;
   - "+ add" appends a blank column at the end.
 - **Tags / vocab** — same idea for each `vocab` field: renaming a value batch-updates every card that had it. A field at the bottom lets you add a brand-new vocab field.
+- **Card** — editable lists for the centralized ` ```card ` config (see above): "Поля" (a plain list), "Ссылки" and "Подписи" (field → label pairs). These aren't tied to individual cards, so renaming here doesn't touch any note — it just changes what an empty ` ```card ` block displays.
 - "Save" rewrites the ` ```board ` code block itself (via `stringifyYaml`) and applies all the renames to cards in one go; the live board re-parses its config and redraws immediately, no need to reopen the note.
 
 You can't rename the board's own `tag` or drag-reorder columns from this modal — see Known limitations.
