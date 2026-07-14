@@ -102,6 +102,11 @@
   padding: 3px 8px;
 }
 
+.bn-chip-empty {
+  font-style: italic;
+  border-style: dashed;
+}
+
 .bn-board {
   display: flex;
   gap: 12px;
