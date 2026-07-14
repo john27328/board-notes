@@ -342,6 +342,16 @@ export default class BoardNotesPlugin extends Plugin {
           if (hasValue && typeof value === "string" && /^https?:\/\//.test(value)) {
             const item = row.createSpan({ cls: "bn-card-link-item" });
             item.createEl("a", { cls: "bn-card-link", text: label, href: value });
+            const copyBtn = item.createSpan({ cls: "bn-card-link-copy", text: "⧉" });
+            copyBtn.setAttr("aria-label", "Скопировать ссылку");
+            copyBtn.addEventListener("click", async (e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              await navigator.clipboard.writeText(value);
+              const prev = copyBtn.getText();
+              copyBtn.setText("✓");
+              setTimeout(() => copyBtn.setText(prev), 1000);
+            });
             const editBtn = item.createSpan({ cls: "bn-card-link-edit", text: "✎" });
             this.makeFieldEditable(editBtn, file, field, String(value), false, draw);
           } else {

@@ -419,7 +419,8 @@ textarea.bn-card-edit-input {
   gap: 6px;
 }
 
-.bn-card-link-edit {
+.bn-card-link-edit,
+.bn-card-link-copy {
   cursor: pointer;
   color: var(--text-faint);
   font-size: 0.85em;
@@ -427,7 +428,8 @@ textarea.bn-card-edit-input {
   padding: 2px 4px;
 }
 
-.bn-card-link-edit:hover {
+.bn-card-link-edit:hover,
+.bn-card-link-copy:hover {
   background: var(--background-modifier-hover);
   color: var(--text-normal);
 }
