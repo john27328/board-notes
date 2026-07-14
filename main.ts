@@ -9,6 +9,11 @@ import {
   Notice,
 } from "obsidian";
 
+interface CardLink {
+  field: string;
+  label?: string;
+}
+
 interface BoardConfig {
   tag: string;
   statusField: string;
@@ -25,6 +30,14 @@ interface BoardConfig {
   showTags: boolean;
   flat: boolean;
   raw: string;
+  // Centralized ```card``` display config — used by cards whose own
+  // ```card``` block is empty, so the layout only has to be defined once
+  // on the board instead of copy-pasted into every note/template.
+  cardFields: string[];
+  cardLinks: CardLink[];
+  cardLabels: Record<string, string>;
+  cardRatingField?: string;
+  cardRecField?: string;
 }
 
 interface Card {
@@ -41,9 +54,8 @@ interface BoardState {
   searchQuery: string;
 }
 
-interface BoardStatusInfo {
+interface MatchedBoard {
   cfg: BoardConfig;
-  columns: string[];
   boardPath: string;
 }
 
@@ -149,7 +161,10 @@ export default class BoardNotesPlugin extends Plugin {
     ];
   }
 
-  async findBoardStatusInfoForFile(file: TFile): Promise<BoardStatusInfo | null> {
+  async findMatchingBoardConfig(
+    file: TFile,
+    opts?: { excludeFlat?: boolean }
+  ): Promise<MatchedBoard | null> {
     const fileTags = this.fileTagsFor(file);
     if (!fileTags.length) return null;
 
@@ -158,21 +173,25 @@ export default class BoardNotesPlugin extends Plugin {
       const matches = content.matchAll(/```board\n([\s\S]*?)\n```/g);
       for (const m of matches) {
         const cfg = this.parseConfig(m[1]);
-        if (!cfg.tag || cfg.flat || !fileTags.includes(cfg.tag)) continue;
-        const columns = cfg.columns.length
-          ? cfg.columns
-          : Array.from(
-              new Set(
-                this.getCards(cfg, f.path)
-                  .map((c) => c.fm[cfg.statusField])
-                  .filter(Boolean)
-                  .map((v) => String(v))
-              )
-            );
-        return { cfg, columns, boardPath: f.path };
+        if (!cfg.tag || !fileTags.includes(cfg.tag)) continue;
+        if (opts?.excludeFlat && cfg.flat) continue;
+        return { cfg, boardPath: f.path };
       }
     }
     return null;
+  }
+
+  statusColumnsFor(cfg: BoardConfig, boardPath: string): string[] {
+    return cfg.columns.length
+      ? cfg.columns
+      : Array.from(
+          new Set(
+            this.getCards(cfg, boardPath)
+              .map((c) => c.fm[cfg.statusField])
+              .filter(Boolean)
+              .map((v) => String(v))
+          )
+        );
   }
 
   async openVocabEditorForFile(file: TFile) {
@@ -225,89 +244,121 @@ export default class BoardNotesPlugin extends Plugin {
     if (!(file instanceof TFile)) return;
 
     const raw = (parseYaml(source) ?? {}) as Record<string, any>;
-    const fields: string[] = Array.isArray(raw.fields)
-      ? raw.fields.map((f: any) => String(f))
-      : ["Оценка", "Кинопоиск", "Описание", "Рекомендация"];
-    const ratingField = raw.ratingField ? String(raw.ratingField) : "Оценка";
-    const linkField = raw.linkField ? String(raw.linkField) : "Кинопоиск";
-    const linkLabel = raw.linkLabel
-      ? String(raw.linkLabel)
-      : linkField === "Кинопоиск"
-      ? "Открыть на Кинопоиске ↗"
-      : "Открыть ↗";
-    const recField = raw.recField ? String(raw.recField) : "Рекомендация";
-    const labels: Record<string, string> =
-      raw.labels && typeof raw.labels === "object"
-        ? Object.fromEntries(
-            Object.entries(raw.labels).map(([k, v]) => [k, String(v)])
-          )
-        : {};
+    const hasLocalFields = Array.isArray(raw.fields);
+    const hasLocalLabels = raw.labels && typeof raw.labels === "object";
     const showStatus = raw.showStatus !== false;
 
-    const container = el.createDiv({ cls: "bn-card-view" });
+    let board: MatchedBoard | null = null;
 
-    let statusInfo: BoardStatusInfo | null = null;
+    const fields = (): string[] =>
+      hasLocalFields
+        ? raw.fields.map((f: any) => String(f))
+        : board?.cfg.cardFields.length
+        ? board.cfg.cardFields
+        : ["Оценка", "Кинопоиск", "Описание", "Рекомендация"];
+
+    const links = (): CardLink[] => {
+      if (Array.isArray(raw.links)) {
+        return raw.links
+          .filter((l: any) => l && l.field)
+          .map((l: any) => ({ field: String(l.field), label: l.label ? String(l.label) : undefined }));
+      }
+      if (raw.linkField) {
+        const field = String(raw.linkField);
+        return [{ field, label: raw.linkLabel ? String(raw.linkLabel) : undefined }];
+      }
+      if (board?.cfg.cardLinks.length) return board.cfg.cardLinks;
+      return hasLocalFields ? [] : [{ field: "Кинопоиск" }];
+    };
+
+    const labels = (): Record<string, string> => {
+      const local = hasLocalLabels
+        ? Object.fromEntries(Object.entries(raw.labels).map(([k, v]) => [k, String(v)]))
+        : {};
+      return { ...(board?.cfg.cardLabels ?? {}), ...local };
+    };
+
+    const ratingField = () =>
+      raw.ratingField ? String(raw.ratingField) : board?.cfg.cardRatingField ?? "Оценка";
+    const recField = () =>
+      raw.recField ? String(raw.recField) : board?.cfg.cardRecField ?? "Рекомендация";
+
+    const container = el.createDiv({ cls: "bn-card-view" });
 
     const draw = () => {
       container.empty();
       const fm = this.app.metadataCache.getFileCache(file)?.frontmatter ?? {};
+      const currentLabels = labels();
+      const currentLinks = links();
+      const linkFieldNames = new Set(currentLinks.map((l) => l.field));
+      const rating = ratingField();
+      const rec = recField();
 
-      if (statusInfo) {
-        const current = fm[statusInfo.cfg.statusField];
-        const row = container.createDiv({ cls: "bn-card-status-row" });
-        statusInfo.columns.forEach((col) => {
-          const chip = row.createSpan({
-            cls: "bn-chip bn-status-chip" + (col === current ? " active" : ""),
-            text: col,
-          });
-          chip.addEventListener("click", async () => {
-            if (col === current) return;
-            await this.app.fileManager.processFrontMatter(file, (fm2) => {
-              fm2[statusInfo!.cfg.statusField] = col;
+      if (showStatus && board && !board.cfg.flat) {
+        const columns = this.statusColumnsFor(board.cfg, board.boardPath);
+        if (columns.length) {
+          const current = fm[board.cfg.statusField];
+          const row = container.createDiv({ cls: "bn-card-status-row" });
+          columns.forEach((col) => {
+            const chip = row.createSpan({
+              cls: "bn-chip bn-status-chip" + (col === current ? " active" : ""),
+              text: col,
+            });
+            chip.addEventListener("click", async () => {
+              if (col === current) return;
+              await this.app.fileManager.processFrontMatter(file, (fm2) => {
+                fm2[board!.cfg.statusField] = col;
+              });
             });
           });
-        });
+        }
       }
 
-      fields.forEach((field) => {
+      currentLinks.forEach((linkCfg) => {
+        const field = linkCfg.field;
+        const value = fm[field];
+        const hasValue = value != null && value !== "";
+        const label =
+          linkCfg.label ??
+          (field === "Кинопоиск" ? "Открыть на Кинопоиске ↗" : `Открыть (${field}) ↗`);
+        const row = container.createDiv({ cls: "bn-card-link-row" });
+        if (hasValue && typeof value === "string" && /^https?:\/\//.test(value)) {
+          row.createEl("a", { cls: "bn-card-link", text: label, href: value });
+          const editBtn = row.createSpan({ cls: "bn-card-link-edit", text: "✎" });
+          this.makeFieldEditable(editBtn, file, field, String(value), false, draw);
+        } else {
+          const placeholder = row.createSpan({
+            cls: "bn-card-link bn-card-placeholder",
+            text: `+ ${(currentLabels[field] ?? field).toLowerCase()}`,
+          });
+          this.makeFieldEditable(placeholder, file, field, "", false, draw);
+        }
+      });
+
+      fields().forEach((field) => {
+        if (linkFieldNames.has(field)) return;
         const value = fm[field];
         const hasValue = value != null && value !== "";
 
-        if (field === ratingField) {
+        if (field === rating) {
           const el = container.createDiv({ cls: "bn-card-rating" });
-          el.setText(hasValue ? `★ ${value}` : `+ ${(labels[field] ?? field).toLowerCase()}`);
+          el.setText(hasValue ? `★ ${value}` : `+ ${(currentLabels[field] ?? field).toLowerCase()}`);
           if (!hasValue) el.addClass("bn-card-placeholder");
           this.makeFieldEditable(el, file, field, hasValue ? String(value) : "", false, draw);
           return;
         }
 
-        if (field === linkField) {
-          const row = container.createDiv({ cls: "bn-card-link-row" });
-          if (hasValue && typeof value === "string" && /^https?:\/\//.test(value)) {
-            row.createEl("a", { cls: "bn-card-link", text: linkLabel, href: value });
-            const editBtn = row.createSpan({ cls: "bn-card-link-edit", text: "✎" });
-            this.makeFieldEditable(editBtn, file, field, String(value), false, draw);
-          } else {
-            const el = row.createSpan({
-              cls: "bn-card-link bn-card-placeholder",
-              text: `+ ${(labels[field] ?? field).toLowerCase()}`,
-            });
-            this.makeFieldEditable(el, file, field, "", false, draw);
-          }
-          return;
-        }
-
-        if (field === recField) {
+        if (field === rec) {
           const el = container.createDiv({ cls: "bn-card-rec" });
-          el.setText(hasValue ? String(value) : `+ ${(labels[field] ?? field).toLowerCase()}`);
+          el.setText(hasValue ? String(value) : `+ ${(currentLabels[field] ?? field).toLowerCase()}`);
           if (!hasValue) el.addClass("bn-card-placeholder");
           this.makeFieldEditable(el, file, field, hasValue ? String(value) : "", true, draw);
           return;
         }
 
-        if (labels[field]) {
+        if (currentLabels[field]) {
           const meta = container.createDiv({ cls: "bn-card-labeled" });
-          meta.createSpan({ cls: "bn-card-label", text: labels[field] });
+          meta.createSpan({ cls: "bn-card-label", text: currentLabels[field] });
           const valueEl = meta.createSpan({
             cls: "bn-card-label-value",
             text: hasValue ? String(value) : "—",
@@ -322,20 +373,31 @@ export default class BoardNotesPlugin extends Plugin {
         if (!hasValue) el.addClass("bn-card-placeholder");
         this.makeFieldEditable(el, file, field, hasValue ? String(value) : "", true, draw);
       });
+
+      if (board) {
+        const settingsBtn = container.createDiv({ cls: "bn-card-settings-btn", text: "⚙ поля карточки" });
+        settingsBtn.addEventListener("click", () => {
+          new BoardSettingsModal(this.app, this, board!.cfg, board!.boardPath).open();
+        });
+      }
     };
 
     draw();
 
-    if (showStatus) {
-      this.findBoardStatusInfoForFile(file).then((info) => {
-        if (!info) return;
-        statusInfo = info;
-        draw();
-      });
-    }
+    this.findMatchingBoardConfig(file).then((found) => {
+      if (!found) return;
+      board = found;
+      draw();
+    });
 
     const evtRef = this.app.metadataCache.on("changed", (changed) => {
       if (changed.path === file.path) draw();
+      if (board && changed.path === board.boardPath) {
+        this.findMatchingBoardConfig(file).then((found) => {
+          board = found;
+          draw();
+        });
+      }
     });
     this.registerEvent(evtRef);
   }
@@ -479,6 +541,26 @@ export default class BoardNotesPlugin extends Plugin {
       : raw.meta
       ? [String(raw.meta)]
       : [];
+
+    const cardRaw = raw.card && typeof raw.card === "object" ? raw.card : {};
+    const cardFields = Array.isArray(cardRaw.fields)
+      ? cardRaw.fields.map((f: any) => String(f))
+      : [];
+    const cardLinks: CardLink[] = Array.isArray(cardRaw.links)
+      ? cardRaw.links
+          .filter((l: any) => l && l.field)
+          .map((l: any) => ({
+            field: String(l.field),
+            label: l.label ? String(l.label) : undefined,
+          }))
+      : [];
+    const cardLabels: Record<string, string> =
+      cardRaw.labels && typeof cardRaw.labels === "object"
+        ? Object.fromEntries(
+            Object.entries(cardRaw.labels).map(([k, v]) => [k, String(v)])
+          )
+        : {};
+
     return {
       tag: raw.tag ? String(raw.tag) : "",
       statusField: raw.statusField ? String(raw.statusField) : DEFAULT_STATUS_FIELD,
@@ -495,6 +577,11 @@ export default class BoardNotesPlugin extends Plugin {
       showTags: raw.showTags === false ? false : true,
       flat: raw.flat === true,
       raw: source,
+      cardFields,
+      cardLinks,
+      cardLabels,
+      cardRatingField: cardRaw.ratingField ? String(cardRaw.ratingField) : undefined,
+      cardRecField: cardRaw.recField ? String(cardRaw.recField) : undefined,
     };
   }
 
@@ -1098,6 +1185,19 @@ export default class BoardNotesPlugin extends Plugin {
     if (Object.keys(cfg.vocab).length) obj.vocab = cfg.vocab;
     if (cfg.single.length) obj.single = cfg.single;
     if (cfg.columns.length) obj.columns = cfg.columns;
+
+    const card: Record<string, any> = {};
+    if (cfg.cardFields.length) card.fields = cfg.cardFields;
+    if (cfg.cardLinks.length) {
+      card.links = cfg.cardLinks.map((l) =>
+        l.label ? { field: l.field, label: l.label } : { field: l.field }
+      );
+    }
+    if (Object.keys(cfg.cardLabels).length) card.labels = cfg.cardLabels;
+    if (cfg.cardRatingField) card.ratingField = cfg.cardRatingField;
+    if (cfg.cardRecField) card.recField = cfg.cardRecField;
+    if (Object.keys(card).length) obj.card = card;
+
     return stringifyYaml(obj).trimEnd();
   }
 
@@ -1192,12 +1292,22 @@ interface EditableRow {
   deleted: boolean;
 }
 
+interface PairRow {
+  fieldInput: HTMLInputElement;
+  labelInput: HTMLInputElement;
+  row: HTMLElement;
+  deleted: boolean;
+}
+
 class BoardSettingsModal extends Modal {
   private folderInput!: HTMLInputElement;
   private templateInput!: HTMLInputElement;
   private columnRows: EditableRow[] = [];
   private vocabRows: Map<string, EditableRow[]> = new Map();
   private vocabFieldOrder: string[] = [];
+  private cardFieldRows: EditableRow[] = [];
+  private cardLinkRows: PairRow[] = [];
+  private cardLabelRows: PairRow[] = [];
 
   constructor(
     app: App,
@@ -1242,6 +1352,45 @@ class BoardSettingsModal extends Modal {
 
     const addBtn = container.createDiv({ cls: "bn-settings-add", text: "+ добавить" });
     addBtn.addEventListener("click", () => addRow(""));
+
+    return rows;
+  }
+
+  private makePairList(
+    container: HTMLElement,
+    pairs: { field: string; label: string }[],
+    fieldPlaceholder: string,
+    labelPlaceholder: string
+  ): PairRow[] {
+    const rows: PairRow[] = [];
+    const list = container.createDiv({ cls: "bn-settings-list" });
+
+    const addRow = (field: string, label: string) => {
+      const row = list.createDiv({ cls: "bn-settings-row" });
+      const fieldInput = row.createEl("input", {
+        type: "text",
+        value: field,
+        placeholder: fieldPlaceholder,
+      }) as HTMLInputElement;
+      const labelInput = row.createEl("input", {
+        type: "text",
+        value: label,
+        placeholder: labelPlaceholder,
+      }) as HTMLInputElement;
+      const del = row.createSpan({ cls: "bn-settings-del", text: "×" });
+      const entry: PairRow = { fieldInput, labelInput, row, deleted: false };
+      del.addEventListener("click", () => {
+        entry.deleted = true;
+        row.style.display = "none";
+      });
+      rows.push(entry);
+      return entry;
+    };
+
+    pairs.forEach((p) => addRow(p.field, p.label));
+
+    const addBtn = container.createDiv({ cls: "bn-settings-add", text: "+ добавить" });
+    addBtn.addEventListener("click", () => addRow("", ""));
 
     return rows;
   }
@@ -1311,6 +1460,32 @@ class BoardSettingsModal extends Modal {
       newFieldInput.value = "";
     });
 
+    // Карточка (```card``` без своего конфига берёт эти настройки централизованно)
+    contentEl.createEl("h4", { text: "Карточка (```card```)" });
+    contentEl.createEl("p", {
+      cls: "bn-settings-hint",
+      text: "Применяется к заметкам, у которых блок ```card``` пустой (без своего fields/links/labels) — не нужно дублировать настройки в каждом шаблоне.",
+    });
+
+    contentEl.createEl("div", { cls: "bn-settings-field-name", text: "Поля" });
+    this.cardFieldRows = this.makeEditableList(contentEl, this.cfg.cardFields, () => {});
+
+    contentEl.createEl("div", { cls: "bn-settings-field-name", text: "Ссылки (поле → подпись)" });
+    this.cardLinkRows = this.makePairList(
+      contentEl,
+      this.cfg.cardLinks.map((l) => ({ field: l.field, label: l.label ?? "" })),
+      "имя поля (например Морж)",
+      "подпись ссылки"
+    );
+
+    contentEl.createEl("div", { cls: "bn-settings-field-name", text: "Подписи (поле → подпись)" });
+    this.cardLabelRows = this.makePairList(
+      contentEl,
+      Object.entries(this.cfg.cardLabels).map(([field, label]) => ({ field, label })),
+      "имя поля",
+      "подпись"
+    );
+
     // Кнопки
     const footer = contentEl.createDiv({ cls: "bn-settings-footer" });
     const saveBtn = footer.createEl("button", { text: "Сохранить", cls: "mod-cta" });
@@ -1363,12 +1538,36 @@ class BoardSettingsModal extends Modal {
         newVocab[field] = values;
       }
 
+      const newCardFields = this.cardFieldRows
+        .filter((r) => !r.deleted)
+        .map((r) => r.input.value.trim())
+        .filter(Boolean);
+
+      const newCardLinks: CardLink[] = this.cardLinkRows
+        .filter((r) => !r.deleted)
+        .map((r) => ({
+          field: r.fieldInput.value.trim(),
+          label: r.labelInput.value.trim() || undefined,
+        }))
+        .filter((l) => l.field);
+
+      const newCardLabels: Record<string, string> = {};
+      for (const r of this.cardLabelRows) {
+        if (r.deleted) continue;
+        const field = r.fieldInput.value.trim();
+        const label = r.labelInput.value.trim();
+        if (field && label) newCardLabels[field] = label;
+      }
+
       const newCfg: BoardConfig = {
         ...this.cfg,
         folder: newFolder || undefined,
         template: newTemplate || undefined,
         columns: newColumns,
         vocab: newVocab,
+        cardFields: newCardFields,
+        cardLinks: newCardLinks,
+        cardLabels: newCardLabels,
       };
 
       let renamedCount = 0;
@@ -1478,6 +1677,9 @@ class NewBoardModal extends Modal {
       showTags: true,
       flat: false,
       raw: "",
+      cardFields: [],
+      cardLinks: [],
+      cardLabels: {},
     };
 
     const yaml = this.plugin.serializeConfig(cfg);
