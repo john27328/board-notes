@@ -535,6 +535,18 @@ textarea.bn-card-edit-input {
   color: var(--text-error);
 }
 
+.bn-settings-move {
+  flex: none;
+  cursor: pointer;
+  color: var(--text-faint);
+  padding: 0 4px;
+  font-size: 0.85em;
+}
+
+.bn-settings-move:hover {
+  color: var(--text-normal);
+}
+
 .bn-settings-add {
   font-size: 0.82em;
   color: var(--text-muted);
