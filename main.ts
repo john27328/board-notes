@@ -1341,6 +1341,7 @@ class BoardSettingsModal extends Modal {
   private vocabRows: Map<string, EditableRow[]> = new Map();
   private vocabFieldOrder: string[] = [];
   private cardFieldRows: EditableRow[] = [];
+  private metaRows: EditableRow[] = [];
   private cardLinkRows: PairRow[] = [];
   private cardLabelRows: PairRow[] = [];
 
@@ -1494,6 +1495,14 @@ class BoardSettingsModal extends Modal {
     contentEl.createEl("h4", { text: "Колонки" });
     this.columnRows = this.makeEditableList(contentEl, this.cfg.columns, () => {});
 
+    // Метаданные на лицевой стороне карточки доски (под названием)
+    contentEl.createEl("h4", { text: "Метаданные на карточке доски" });
+    contentEl.createEl("p", {
+      cls: "bn-settings-hint",
+      text: "Поля frontmatter, показываемые строкой под названием прямо на доске (не в развороте ```card```).",
+    });
+    this.metaRows = this.makeEditableList(contentEl, this.cfg.meta, () => {});
+
     // Словарь (Метки/Жанры/…)
     contentEl.createEl("h4", { text: "Теги / словарь" });
     this.vocabFieldOrder = Object.keys(this.cfg.vocab);
@@ -1601,6 +1610,11 @@ class BoardSettingsModal extends Modal {
         newVocab[field] = values;
       }
 
+      const newMeta = this.byDomOrder(this.metaRows)
+        .filter((r) => !r.deleted)
+        .map((r) => r.input.value.trim())
+        .filter(Boolean);
+
       const newCardFields = this.byDomOrder(this.cardFieldRows)
         .filter((r) => !r.deleted)
         .map((r) => r.input.value.trim())
@@ -1627,6 +1641,7 @@ class BoardSettingsModal extends Modal {
         folder: newFolder || undefined,
         template: newTemplate || undefined,
         columns: newColumns,
+        meta: newMeta,
         vocab: newVocab,
         cardFields: newCardFields,
         cardLinks: newCardLinks,
