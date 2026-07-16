@@ -462,7 +462,7 @@ export default class BoardNotesPlugin extends Plugin {
       };
 
       inputEl.addEventListener("blur", save);
-      inputEl.addEventListener("keydown", (e) => {
+      inputEl.addEventListener("keydown", (e: KeyboardEvent) => {
         if (e.key === "Enter" && !multiline) {
           e.preventDefault();
           inputEl.blur();

@@ -62,6 +62,11 @@ npm run build       # one-shot production build -> main.js
 npm run dev          # watch mode, rebuilds on save
 ```
 
+When this repository is checked out as `plugins/board-notes` inside the companion vault
+repository, deploy a verified build to Obsidian with `npm run deploy`. The command runs
+the TypeScript check and production build, then copies `main.js`, `manifest.json`, and
+`styles.css` to `notes/.obsidian/plugins/board-notes`.
+
 `npm run build` produces a minified `main.js` with no source map. `npm run dev` produces an unminified build with an inline source map and watches for changes — point it at a symlinked/copied plugin folder inside a real vault for live development.
 
 ## Quick start

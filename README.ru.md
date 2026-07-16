@@ -58,6 +58,11 @@ npm run build       # разовая продакшн-сборка -> main.js
 npm run dev          # watch-режим, пересобирает при сохранении
 ```
 
+Если репозиторий подключён как `plugins/board-notes` внутри сопутствующего репозитория
+хранилища, команда `npm run deploy` проверяет TypeScript, создаёт production-сборку и
+копирует `main.js`, `manifest.json` и `styles.css` в
+`notes/.obsidian/plugins/board-notes`.
+
 `npm run build` даёт минифицированный `main.js` без source map. `npm run dev` даёт неминифицированную сборку с inline source map и следит за изменениями — направь его на скопированную/симлинкнутую папку плагина внутри реального vault для разработки вживую.
 
 ## Быстрый старт
