@@ -1,5 +1,6 @@
 import {
   App,
+  MarkdownRenderChild,
   MarkdownPostProcessorContext,
   Modal,
   Plugin,
@@ -209,6 +210,8 @@ export default class BoardNotesPlugin extends Plugin {
     if (!(file instanceof TFile)) return;
 
     const container = el.createDiv({ cls: "bn-inline-vocab" });
+    const lifecycle = new MarkdownRenderChild(container);
+    ctx.addChild(lifecycle);
 
     const draw = async () => {
       container.empty();
@@ -237,7 +240,7 @@ export default class BoardNotesPlugin extends Plugin {
     const evtRef = this.app.metadataCache.on("changed", (changed) => {
       if (changed.path === file.path) draw();
     });
-    this.registerEvent(evtRef);
+    lifecycle.registerEvent(evtRef);
   }
 
   renderCard(source: string, el: HTMLElement, ctx: MarkdownPostProcessorContext) {
@@ -285,6 +288,8 @@ export default class BoardNotesPlugin extends Plugin {
       raw.recField ? String(raw.recField) : board?.cfg.cardRecField ?? "Рекомендация";
 
     const container = el.createDiv({ cls: "bn-card-view" });
+    const lifecycle = new MarkdownRenderChild(container);
+    ctx.addChild(lifecycle);
 
     const draw = () => {
       container.empty();
@@ -423,7 +428,7 @@ export default class BoardNotesPlugin extends Plugin {
         });
       }
     });
-    this.registerEvent(evtRef);
+    lifecycle.registerEvent(evtRef);
   }
 
   makeFieldEditable(
@@ -649,6 +654,8 @@ export default class BoardNotesPlugin extends Plugin {
   renderBoard(source: string, el: HTMLElement, ctx: MarkdownPostProcessorContext) {
     let cfg = this.parseConfig(source);
     const container = el.createDiv({ cls: "board-notes" });
+    const lifecycle = new MarkdownRenderChild(container);
+    ctx.addChild(lifecycle);
 
     if (!cfg.tag) {
       container.createDiv({
@@ -692,10 +699,10 @@ export default class BoardNotesPlugin extends Plugin {
       }
       redraw();
     });
-    this.registerEvent(evtRef);
+    lifecycle.registerEvent(evtRef);
 
     const deleteRef = this.app.vault.on("delete", redraw);
-    this.registerEvent(deleteRef);
+    lifecycle.registerEvent(deleteRef);
   }
 
   draw(container: HTMLElement, cfg: BoardConfig, state: BoardState, sourcePath: string, onSettings?: () => void) {
@@ -1145,33 +1152,34 @@ export default class BoardNotesPlugin extends Plugin {
   }
 
   setFrontmatterField(content: string, field: string, value: string): string {
-    const fmMatch = content.match(/^---\n([\s\S]*?)\n---/);
-    const fieldLineRe = new RegExp(`^${field}:.*$`, "m");
+    const fmMatch = content.match(/^---\r?\n([\s\S]*?)\r?\n---/);
+    const escapedField = field.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const fieldLineRe = new RegExp(`^${escapedField}:.*$`, "m");
 
     if (!fmMatch) {
       return `---\n${field}: ${value}\n---\n${content}`;
     }
 
-    if (fieldLineRe.test(fmMatch[1])) {
-      return content.replace(
-        new RegExp(`^(${field}:).*$`, "m"),
-        `$1 ${value}`
-      );
-    }
+    const frontmatter = fmMatch[0];
+    const updatedFrontmatter = fieldLineRe.test(frontmatter)
+      ? frontmatter.replace(fieldLineRe, `${field}: ${value}`)
+      : frontmatter.replace(/^---\r?\n/, `---\n${field}: ${value}\n`);
 
-    return content.replace(/^---\n/, `---\n${field}: ${value}\n`);
+    return updatedFrontmatter + content.slice(frontmatter.length);
   }
 
   async createCard(cfg: BoardConfig, cards: Card[], status?: string) {
-    const folder = cfg.folder ?? "/";
+    const folder = (cfg.folder ?? "").replace(/^\/+|\/+$/g, "");
     const base = "Новая заметка";
     let name = base;
     let n = 1;
-    while (this.app.vault.getAbstractFileByPath(`${folder}/${name}.md`)) {
+    const cardPath = (cardName: string) =>
+      folder ? `${folder}/${cardName}.md` : `${cardName}.md`;
+    while (this.app.vault.getAbstractFileByPath(cardPath(name))) {
       n += 1;
       name = `${base} ${n}`;
     }
-    const path = `${folder}/${name}.md`;
+    const path = cardPath(name);
 
     let content = status
       ? `---\n${cfg.statusField}: ${status}\n---\n${cfg.tag}\n`
@@ -1181,14 +1189,9 @@ export default class BoardNotesPlugin extends Plugin {
       const tpl = this.app.vault.getAbstractFileByPath(cfg.template);
       if (tpl instanceof TFile) {
         const tplContent = await this.app.vault.read(tpl);
-        if (status) {
-          const statusLineRe = new RegExp(`^${cfg.statusField}:.*$`, "m");
-          content = statusLineRe.test(tplContent)
-            ? tplContent.replace(statusLineRe, `${cfg.statusField}: ${status}`)
-            : tplContent;
-        } else {
-          content = tplContent;
-        }
+        content = status
+          ? this.setFrontmatterField(tplContent, cfg.statusField, status)
+          : tplContent;
       } else {
         new Notice(`board-notes: шаблон не найден — ${cfg.template}`);
       }
@@ -1648,6 +1651,8 @@ class BoardSettingsModal extends Modal {
         cardLabels: newCardLabels,
       };
 
+      await this.plugin.saveBoardConfig(this.boardPath, this.cfg.raw, newCfg);
+
       let renamedCount = 0;
       for (const { oldValue, newValue } of columnRenames) {
         renamedCount += await this.plugin.renameStatusAcrossCards(this.cfg, this.boardPath, oldValue, newValue);
@@ -1660,8 +1665,6 @@ class BoardSettingsModal extends Modal {
       for (const { field, oldValue, newValue } of vocabRenames) {
         renamedCount += await this.plugin.renameVocabValueAcrossCards(this.cfg, this.boardPath, field, oldValue, newValue);
       }
-
-      await this.plugin.saveBoardConfig(this.boardPath, this.cfg.raw, newCfg);
 
       new Notice(
         renamedCount
