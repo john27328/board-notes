@@ -70,9 +70,24 @@ interface BoardViewState {
 
 export default class BoardNotesPlugin extends Plugin {
   viewState: Record<string, BoardViewState> = {};
+  private dateUpdateTimers = new Map<string, number>();
+  private ignoredDateUpdateEvents = new Set<string>();
 
   async onload() {
     this.viewState = ((await this.loadData()) as Record<string, BoardViewState>) ?? {};
+
+    this.registerEvent(
+      this.app.vault.on("create", (file) => {
+        if (file instanceof TFile) this.scheduleDateUpdate(file, true);
+      })
+    );
+    this.registerEvent(
+      this.app.vault.on("modify", (file) => {
+        if (!(file instanceof TFile) || file.extension !== "md") return;
+        if (this.ignoredDateUpdateEvents.delete(file.path)) return;
+        this.scheduleDateUpdate(file, false);
+      })
+    );
 
     this.registerMarkdownCodeBlockProcessor("board", (source, el, ctx) => {
       this.renderBoard(source, el, ctx);
@@ -114,6 +129,47 @@ export default class BoardNotesPlugin extends Plugin {
       name: "Создать новую доску",
       callback: () => new NewBoardModal(this.app, this).open(),
     });
+  }
+
+  onunload() {
+    for (const timer of this.dateUpdateTimers.values()) window.clearTimeout(timer);
+    this.dateUpdateTimers.clear();
+  }
+
+  private scheduleDateUpdate(file: TFile, isNew: boolean) {
+    if (file.extension !== "md") return;
+    const previous = this.dateUpdateTimers.get(file.path);
+    if (previous) window.clearTimeout(previous);
+    const timer = window.setTimeout(() => {
+      this.dateUpdateTimers.delete(file.path);
+      void this.updateNoteDates(file, isNew);
+    }, 300);
+    this.dateUpdateTimers.set(file.path, timer);
+  }
+
+  private today() {
+    const now = new Date();
+    const month = String(now.getMonth() + 1).padStart(2, "0");
+    const day = String(now.getDate()).padStart(2, "0");
+    return `${now.getFullYear()}-${month}-${day}`;
+  }
+
+  private async updateNoteDates(file: TFile, isNew: boolean) {
+    if (!this.app.vault.getAbstractFileByPath(file.path)) return;
+    const today = this.today();
+    this.ignoredDateUpdateEvents.add(file.path);
+    try {
+      await this.app.fileManager.processFrontMatter(file, (fm) => {
+        if (isNew && (fm.created === undefined || fm.created === null || fm.created === "")) {
+          fm.created = today;
+        }
+        if (fm.created === undefined || fm.created === null || fm.created === "") fm.created = today;
+        fm.updated = today;
+      });
+    } catch (e) {
+      this.ignoredDateUpdateEvents.delete(file.path);
+      console.error("board-notes: не удалось обновить даты заметки", e);
+    }
   }
 
   async findVocabForFile(file: TFile): Promise<{

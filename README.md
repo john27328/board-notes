@@ -26,6 +26,7 @@ Board Notes takes the opposite approach: every board is defined by a single ` ``
 - **Board settings** (⚙ button in the toolbar) — edit folder, template, columns, vocab values, and the card layout from a modal; renaming a column or a vocab value batch-updates every card that used the old value
 - **"Create new board" command** — a wizard (tag, folder, template, columns) that generates a ready-to-use ` ```board ` code block in a fresh note
 - **Centralized card layout** — define ` ```card ` fields/links/labels once in the board config (`card:`) instead of copy-pasting them into every template and note; supports multiple links at once, not just one
+- **Automatic dates** — fills an empty `created` field with today's date and updates `updated` whenever a Markdown note changes (`YYYY-MM-DD`)
 
 ## Screenshots
 
