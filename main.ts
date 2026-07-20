@@ -15,6 +15,13 @@ interface CardLink {
   label?: string;
 }
 
+interface AutoArchiveConfig {
+  source: string;
+  target: string;
+  afterDays: number;
+  statusChangedField: string;
+}
+
 interface BoardConfig {
   tag: string;
   statusField: string;
@@ -39,6 +46,7 @@ interface BoardConfig {
   cardLabels: Record<string, string>;
   cardRatingField?: string;
   cardRecField?: string;
+  autoArchive?: AutoArchiveConfig;
 }
 
 interface Card {
@@ -72,6 +80,7 @@ export default class BoardNotesPlugin extends Plugin {
   viewState: Record<string, BoardViewState> = {};
   private dateUpdateTimers = new Map<string, number>();
   private ignoredDateUpdateEvents = new Set<string>();
+  private autoArchiveRunning = false;
 
   async onload() {
     this.viewState = ((await this.loadData()) as Record<string, BoardViewState>) ?? {};
@@ -88,6 +97,8 @@ export default class BoardNotesPlugin extends Plugin {
         this.scheduleDateUpdate(file, false);
       })
     );
+    void this.runAutoArchive();
+    this.registerInterval(window.setInterval(() => void this.runAutoArchive(), 60 * 60 * 1000));
 
     this.registerMarkdownCodeBlockProcessor("board", (source, el, ctx) => {
       this.renderBoard(source, el, ctx);
@@ -170,6 +181,56 @@ export default class BoardNotesPlugin extends Plugin {
       this.ignoredDateUpdateEvents.delete(file.path);
       console.error("board-notes: не удалось обновить даты заметки", e);
     }
+  }
+
+  private parseDate(value: unknown): Date | null {
+    const match = String(value ?? "").match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (!match) return null;
+    const date = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+    return Number.isNaN(date.getTime()) ? null : date;
+  }
+
+  private async runAutoArchive() {
+    if (this.autoArchiveRunning) return;
+    this.autoArchiveRunning = true;
+    let moved = 0;
+    try {
+      for (const boardFile of this.app.vault.getMarkdownFiles()) {
+        const content = await this.app.vault.cachedRead(boardFile);
+        for (const match of content.matchAll(/```board\n([\s\S]*?)\n```/g)) {
+          const cfg = this.parseConfig(match[1]);
+          const rule = cfg.autoArchive;
+          if (!rule || cfg.flat) continue;
+          for (const card of this.getCards(cfg, boardFile.path)) {
+            if (String(card.fm[cfg.statusField] ?? "") !== rule.source) continue;
+            const changedAt = this.parseDate(card.fm[rule.statusChangedField]);
+            if (!changedAt) continue;
+            const archiveAt = new Date(changedAt);
+            archiveAt.setDate(archiveAt.getDate() + rule.afterDays);
+            if (new Date() < archiveAt) continue;
+            await this.app.fileManager.processFrontMatter(card.file, (fm) => {
+              if (String(fm[cfg.statusField] ?? "") !== rule.source) return;
+              fm[cfg.statusField] = rule.target;
+              fm[rule.statusChangedField] = this.today();
+              moved++;
+            });
+          }
+        }
+      }
+      if (moved) new Notice(`board-notes: перемещено в архив: ${moved}`);
+    } catch (e) {
+      console.error("board-notes: не удалось выполнить автоархивирование", e);
+    } finally {
+      this.autoArchiveRunning = false;
+    }
+  }
+
+  async setCardStatus(file: TFile, cfg: BoardConfig, status: string) {
+    await this.app.fileManager.processFrontMatter(file, (fm) => {
+      if (String(fm[cfg.statusField] ?? "") === status) return;
+      fm[cfg.statusField] = status;
+      if (cfg.autoArchive) fm[cfg.autoArchive.statusChangedField] = this.today();
+    });
   }
 
   async findVocabForFile(file: TFile): Promise<{
@@ -384,9 +445,7 @@ export default class BoardNotesPlugin extends Plugin {
             });
             chip.addEventListener("click", async () => {
               if (col === current) return;
-              await this.app.fileManager.processFrontMatter(file, (fm2) => {
-                fm2[board!.cfg.statusField] = col;
-              });
+              await this.setCardStatus(file, board!.cfg, col);
             });
           });
         }
@@ -645,6 +704,19 @@ export default class BoardNotesPlugin extends Plugin {
             Object.entries(cardRaw.labels).map(([k, v]) => [k, String(v)])
           )
         : {};
+    const autoArchiveRaw = raw.autoArchive && typeof raw.autoArchive === "object" ? raw.autoArchive : null;
+    const afterDays = Number(autoArchiveRaw?.afterDays);
+    const autoArchive =
+      autoArchiveRaw?.source && autoArchiveRaw?.target && Number.isFinite(afterDays) && afterDays >= 0
+        ? {
+            source: String(autoArchiveRaw.source),
+            target: String(autoArchiveRaw.target),
+            afterDays,
+            statusChangedField: autoArchiveRaw.statusChangedField
+              ? String(autoArchiveRaw.statusChangedField)
+              : "Статус изменён",
+          }
+        : undefined;
 
     return {
       tag: raw.tag ? String(raw.tag) : "",
@@ -667,6 +739,7 @@ export default class BoardNotesPlugin extends Plugin {
       cardLabels,
       cardRatingField: cardRaw.ratingField ? String(cardRaw.ratingField) : undefined,
       cardRecField: cardRaw.recField ? String(cardRaw.recField) : undefined,
+      autoArchive,
     };
   }
 
@@ -1190,7 +1263,10 @@ export default class BoardNotesPlugin extends Plugin {
       const file = this.app.vault.getAbstractFileByPath(path);
       if (!(file instanceof TFile)) continue;
       await this.app.fileManager.processFrontMatter(file, (fm) => {
-        fm[cfg.statusField] = status;
+        if (String(fm[cfg.statusField] ?? "") !== status) {
+          fm[cfg.statusField] = status;
+          if (cfg.autoArchive) fm[cfg.autoArchive.statusChangedField] = this.today();
+        }
         fm[cfg.orderField] = i + 1;
       });
     }
@@ -1255,6 +1331,9 @@ export default class BoardNotesPlugin extends Plugin {
 
     const order = this.nextOrder(cfg, cards, status);
     content = this.setFrontmatterField(content, cfg.orderField, String(order));
+    if (cfg.autoArchive) {
+      content = this.setFrontmatterField(content, cfg.autoArchive.statusChangedField, this.today());
+    }
 
     try {
       const file = await this.app.vault.create(path, content);
@@ -1279,6 +1358,14 @@ export default class BoardNotesPlugin extends Plugin {
     if (Object.keys(cfg.vocab).length) obj.vocab = cfg.vocab;
     if (cfg.single.length) obj.single = cfg.single;
     if (cfg.columns.length) obj.columns = cfg.columns;
+    if (cfg.autoArchive) {
+      obj.autoArchive = {
+        source: cfg.autoArchive.source,
+        target: cfg.autoArchive.target,
+        afterDays: cfg.autoArchive.afterDays,
+        statusChangedField: cfg.autoArchive.statusChangedField,
+      };
+    }
 
     const card: Record<string, any> = {};
     if (cfg.cardFields.length) card.fields = cfg.cardFields;
