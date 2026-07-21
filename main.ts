@@ -87,14 +87,14 @@ export default class BoardNotesPlugin extends Plugin {
 
     this.registerEvent(
       this.app.vault.on("create", (file) => {
-        if (file instanceof TFile) this.scheduleDateUpdate(file, true);
+        if (file instanceof TFile) this.scheduleDateUpdate(file);
       })
     );
     this.registerEvent(
       this.app.vault.on("modify", (file) => {
         if (!(file instanceof TFile) || file.extension !== "md") return;
         if (this.ignoredDateUpdateEvents.delete(file.path)) return;
-        this.scheduleDateUpdate(file, false);
+        this.scheduleDateUpdate(file);
       })
     );
     void this.runAutoArchive();
@@ -147,13 +147,13 @@ export default class BoardNotesPlugin extends Plugin {
     this.dateUpdateTimers.clear();
   }
 
-  private scheduleDateUpdate(file: TFile, isNew: boolean) {
+  private scheduleDateUpdate(file: TFile) {
     if (file.extension !== "md") return;
     const previous = this.dateUpdateTimers.get(file.path);
     if (previous) window.clearTimeout(previous);
     const timer = window.setTimeout(() => {
       this.dateUpdateTimers.delete(file.path);
-      void this.updateNoteDates(file, isNew);
+      void this.ensureNoteDates(file);
     }, 300);
     this.dateUpdateTimers.set(file.path, timer);
   }
@@ -165,17 +165,17 @@ export default class BoardNotesPlugin extends Plugin {
     return `${now.getFullYear()}-${month}-${day}`;
   }
 
-  private async updateNoteDates(file: TFile, isNew: boolean) {
+  private async ensureNoteDates(file: TFile) {
     if (!this.app.vault.getAbstractFileByPath(file.path)) return;
+    const existing = this.app.metadataCache.getFileCache(file)?.frontmatter ?? {};
+    const isEmpty = (value: unknown) => value === undefined || value === null || value === "";
+    if (!isEmpty(existing.created) && !isEmpty(existing.updated)) return;
     const today = this.today();
     this.ignoredDateUpdateEvents.add(file.path);
     try {
       await this.app.fileManager.processFrontMatter(file, (fm) => {
-        if (isNew && (fm.created === undefined || fm.created === null || fm.created === "")) {
-          fm.created = today;
-        }
-        if (fm.created === undefined || fm.created === null || fm.created === "") fm.created = today;
-        fm.updated = today;
+        if (isEmpty(fm.created)) fm.created = today;
+        if (isEmpty(fm.updated)) fm.updated = today;
       });
     } catch (e) {
       this.ignoredDateUpdateEvents.delete(file.path);
