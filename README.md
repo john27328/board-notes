@@ -110,6 +110,10 @@ All options are read from the YAML inside the ` ```board ` block.
 | `autoArchive` | object | — | Automatically moves cards from `source` to `target` after `afterDays` days since their last status change. `statusChangedField` defaults to `Статус изменён`. The check runs when Obsidian starts and hourly afterward. |
 | `card` | object | `{}` | Centralized settings for the ` ```card ` block (see below) — `fields`, `links`, `labels`, `ratingField`, `recField`. Applied to any note tagged for this board whose own ` ```card ` block is empty. |
 
+### Filters
+
+Filter chips include matching cards by default. Click a row label (for example, `Теги · включать`) to switch that row to exclusion mode. Selected chips then hide cards matching any of those values and are displayed in red with a strike-through. Click the label again to return to inclusion mode; this is a view-only preference and does not change any notes.
+
 ### `card` block
 
 Renders a compact summary of a note's own frontmatter, meant to sit inside the note itself (e.g. inside its template) as a readable alternative to the raw Properties panel.

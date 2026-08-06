@@ -58,7 +58,9 @@ interface Card {
 interface BoardState {
   hiddenColumns: Set<string>;
   activeTags: Set<string>;
+  tagFilterMode: "include" | "exclude";
   activeFacets: Map<string, Set<string>>;
+  facetFilterModes: Map<string, "include" | "exclude">;
   openEditor: string | null;
   searchQuery: string;
 }
@@ -822,7 +824,9 @@ export default class BoardNotesPlugin extends Plugin {
     const state: BoardState = {
       hiddenColumns: new Set(),
       activeTags: new Set(),
+      tagFilterMode: "include",
       activeFacets: new Map(),
+      facetFilterModes: new Map(),
       openEditor: null,
       searchQuery: "",
     };
@@ -887,14 +891,17 @@ export default class BoardNotesPlugin extends Plugin {
     const query = state.searchQuery.trim().toLowerCase();
 
     const cards = allCards.filter((c) => {
-      if (state.activeTags.size && !c.tags.some((t) => state.activeTags.has(t))) {
-        return false;
+      if (state.activeTags.size) {
+        const matches = c.tags.some((t) => state.activeTags.has(t));
+        if (state.tagFilterMode === "include" ? !matches : matches) return false;
       }
       for (const [field, active] of state.activeFacets) {
         if (!active.size) continue;
         const values = this.fieldValues(c.fm, field);
         const matchesEmpty = values.length === 0 && active.has(EMPTY_FACET_VALUE);
-        if (!matchesEmpty && !values.some((v) => active.has(v))) return false;
+        const matches = matchesEmpty || values.some((v) => active.has(v));
+        const mode = state.facetFilterModes.get(field) ?? "include";
+        if (mode === "include" ? !matches : matches) return false;
       }
       if (query) {
         const title = String(
@@ -1013,12 +1020,24 @@ export default class BoardNotesPlugin extends Plugin {
 
     if (cfg.showTags && otherTags.size) {
       const tagRow = toolbar.createDiv({ cls: "bn-row" });
-      tagRow.createSpan({ cls: "bn-row-label", text: "Теги" });
+      const tagMode = state.tagFilterMode;
+      const tagLabel = tagRow.createSpan({
+        cls: "bn-row-label bn-row-label-toggle" + (tagMode === "exclude" ? " active" : ""),
+        text: `Теги · ${tagMode === "exclude" ? "исключать" : "включать"}`,
+      });
+      tagLabel.setAttr("aria-label", "Переключить режим фильтра: включать или исключать");
+      tagLabel.addEventListener("click", () => {
+        state.tagFilterMode = tagMode === "include" ? "exclude" : "include";
+        this.draw(container, cfg, state, sourcePath);
+      });
       Array.from(otherTags)
         .sort()
         .forEach((tag) => {
           const chip = tagRow.createSpan({
-            cls: "bn-chip" + (state.activeTags.has(tag) ? " active" : ""),
+            cls:
+              "bn-chip" +
+              (state.activeTags.has(tag) ? " active" : "") +
+              (tagMode === "exclude" && state.activeTags.has(tag) ? " bn-chip-exclude" : ""),
             text: tag,
           });
           chip.addEventListener("click", () => {
@@ -1042,9 +1061,18 @@ export default class BoardNotesPlugin extends Plugin {
 
       if (!state.activeFacets.has(field)) state.activeFacets.set(field, new Set());
       const active = state.activeFacets.get(field)!;
+      const mode = state.facetFilterModes.get(field) ?? "include";
 
       const row = toolbar.createDiv({ cls: "bn-row" });
-      row.createSpan({ cls: "bn-row-label", text: field });
+      const label = row.createSpan({
+        cls: "bn-row-label bn-row-label-toggle" + (mode === "exclude" ? " active" : ""),
+        text: `${field} · ${mode === "exclude" ? "исключать" : "включать"}`,
+      });
+      label.setAttr("aria-label", "Переключить режим фильтра: включать или исключать");
+      label.addEventListener("click", () => {
+        state.facetFilterModes.set(field, mode === "include" ? "exclude" : "include");
+        this.draw(container, cfg, state, sourcePath);
+      });
       Array.from(values)
         .sort((a, b) =>
           a === EMPTY_FACET_VALUE ? -1 : b === EMPTY_FACET_VALUE ? 1 : a.localeCompare(b)
@@ -1055,6 +1083,7 @@ export default class BoardNotesPlugin extends Plugin {
             cls:
               "bn-chip" +
               (active.has(val) ? " active" : "") +
+              (mode === "exclude" && active.has(val) ? " bn-chip-exclude" : "") +
               (isEmpty ? " bn-chip-empty" : ""),
             text: isEmpty ? "пусто" : val,
           });

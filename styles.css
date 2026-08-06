@@ -29,6 +29,18 @@
   margin-right: 2px;
 }
 
+.bn-row-label-toggle {
+  cursor: pointer;
+  border-radius: 3px;
+  padding: 2px 4px;
+}
+
+.bn-row-label-toggle:hover,
+.bn-row-label-toggle.active {
+  color: var(--text-normal);
+  background: var(--background-modifier-hover);
+}
+
 .bn-search-row {
   flex-wrap: nowrap;
 }
@@ -90,6 +102,12 @@
   background: var(--interactive-accent);
   color: var(--text-on-accent);
   border-color: var(--interactive-accent);
+}
+
+.bn-chip.active.bn-chip-exclude {
+  background: var(--text-error);
+  border-color: var(--text-error);
+  text-decoration: line-through;
 }
 
 .bn-chip.bn-chip-off {
