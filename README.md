@@ -140,7 +140,7 @@ labels:
 | `links` | `[{field: Кинопоиск}]` | A list of links — each renders as its own row with a clickable link (if the value looks like a URL) and its own edit pencil. Add more than one, e.g. a Pyrus link plus a separate merge-request link. |
 | `linkField` / `linkLabel` | — | Old-style way to set a **single** link — equivalent to `links: [{field: linkField, label: linkLabel}]`. Still works; don't mix `links` and `linkField` in the same block. |
 | `recField` | `Рекомендация` | Rendered in an italic, accent-bordered block. |
-| `labels` | `{}` | Map of field name → display label for any other field in `fields`. Rendered as a small `Label: value` row instead of a full paragraph — use this for short metadata (IDs, counts) rather than prose. Fields in `fields` without a label and not matching one of the roles above are rendered as a plain paragraph (intended for longer text like a description). |
+| `labels` | `{}` | Map of field name → display label for any other field in `fields`. Rendered as a small `Label: value` row instead of a full paragraph — use this for short metadata (IDs, counts) rather than prose. A value written as an Obsidian wikilink, such as `[[Базовая задача]]`, is rendered as a clickable internal link with a separate edit button. Fields in `fields` without a label and not matching one of the roles above are rendered as a plain paragraph (intended for longer text like a description). |
 | `showStatus` | `true` | Set to `false` to hide the status chip row (see below). |
 
 If nothing in `fields` has a value, the block shows a small "нет данных" placeholder instead of staying blank.

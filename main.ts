@@ -510,12 +510,16 @@ export default class BoardNotesPlugin extends Plugin {
         if (currentLabels[field]) {
           const meta = container.createDiv({ cls: "bn-card-labeled" });
           meta.createSpan({ cls: "bn-card-label", text: currentLabels[field] });
-          const valueEl = meta.createSpan({
-            cls: "bn-card-label-value",
-            text: hasValue ? String(value) : "—",
-          });
+          const valueEl = meta.createSpan({ cls: "bn-card-label-value" });
+          const isInternalLink = hasValue && this.renderInternalLink(valueEl, file, value);
+          if (!isInternalLink) valueEl.setText(hasValue ? String(value) : "—");
           if (!hasValue) valueEl.addClass("bn-card-placeholder");
-          this.makeFieldEditable(valueEl, file, field, hasValue ? String(value) : "", false, draw);
+          if (isInternalLink) {
+            const editBtn = meta.createSpan({ cls: "bn-card-link-edit", text: "✎" });
+            this.makeFieldEditable(editBtn, file, field, String(value), false, draw);
+          } else {
+            this.makeFieldEditable(valueEl, file, field, hasValue ? String(value) : "", false, draw);
+          }
           return;
         }
 
@@ -544,6 +548,27 @@ export default class BoardNotesPlugin extends Plugin {
       }
     });
     lifecycle.registerEvent(evtRef);
+  }
+
+  /** Render a single Obsidian wikilink stored in frontmatter as a working internal link. */
+  private renderInternalLink(el: HTMLElement, sourceFile: TFile, value: unknown): boolean {
+    if (typeof value !== "string") return false;
+    const match = value.trim().match(/^\[\[([^|\]]+)(?:\|([^\]]+))?\]\]$/);
+    if (!match) return false;
+
+    const target = match[1].trim();
+    const text = (match[2] ?? target.split("#")[0]).trim();
+    const link = el.createEl("a", {
+      cls: "internal-link",
+      text,
+      attr: { "data-href": target, href: target },
+    });
+    link.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      void this.app.workspace.openLinkText(target, sourceFile.path);
+    });
+    return true;
   }
 
   makeFieldEditable(
