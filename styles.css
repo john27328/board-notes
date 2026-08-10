@@ -204,6 +204,16 @@
   font-weight: 500;
 }
 
+.bn-card-cover {
+  display: block;
+  width: 100%;
+  max-height: 180px;
+  object-fit: contain;
+  margin: 0 0 8px;
+  border-radius: 3px;
+  background: var(--background-secondary);
+}
+
 .bn-card-meta {
   font-size: 0.78em;
   color: var(--text-muted);

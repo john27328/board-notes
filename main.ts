@@ -35,6 +35,7 @@ interface BoardConfig {
   vocab: Record<string, string[]>;
   single: string[];
   meta: string[];
+  coverField?: string;
   showTags: boolean;
   flat: boolean;
   raw: string;
@@ -758,6 +759,7 @@ export default class BoardNotesPlugin extends Plugin {
       vocab,
       single,
       meta,
+      coverField: raw.coverField ? String(raw.coverField) : undefined,
       showTags: raw.showTags === false ? false : true,
       flat: raw.flat === true,
       raw: source,
@@ -1146,6 +1148,23 @@ export default class BoardNotesPlugin extends Plugin {
       c.file.basename;
     card.createDiv({ cls: "bn-card-title", text: String(title) });
 
+    const coverValue = cfg.coverField ? c.fm[cfg.coverField] : null;
+    if (typeof coverValue === "string" && coverValue.trim()) {
+      const wikilink = coverValue.match(/^\[\[([^\]|]+)(?:\|[^\]]+)?\]\]$/);
+      const target = wikilink ? wikilink[1] : coverValue;
+      const coverFile = this.app.metadataCache.getFirstLinkpathDest(target, c.file.path);
+      if (coverFile instanceof TFile) {
+        card.createEl("img", {
+          cls: "bn-card-cover",
+          attr: {
+            src: this.app.vault.getResourcePath(coverFile),
+            alt: `Обложка: ${String(title)}`,
+            loading: "lazy",
+          },
+        });
+      }
+    }
+
     const metaBits: string[] = [];
     if (cfg.meta.length) {
       cfg.meta.forEach((field) => {
@@ -1407,6 +1426,7 @@ export default class BoardNotesPlugin extends Plugin {
     if (cfg.orderField !== DEFAULT_ORDER_FIELD) obj.orderField = cfg.orderField;
     if (cfg.showTags === false) obj.showTags = false;
     if (cfg.flat) obj.flat = true;
+    if (cfg.coverField) obj.coverField = cfg.coverField;
     if (cfg.meta.length) obj.meta = cfg.meta;
     if (cfg.facets.length) obj.facets = cfg.facets;
     if (Object.keys(cfg.vocab).length) obj.vocab = cfg.vocab;
