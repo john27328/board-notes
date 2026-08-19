@@ -48,6 +48,7 @@ interface BoardConfig {
   cardRatingField?: string;
   cardRecField?: string;
   autoArchive?: AutoArchiveConfig;
+  baseTaskField: string;
 }
 
 interface Card {
@@ -64,6 +65,8 @@ interface BoardState {
   facetFilterModes: Map<string, "include" | "exclude">;
   openEditor: string | null;
   searchQuery: string;
+  onlyBaseTasks: boolean;
+  onSettings: (() => void) | null;
 }
 
 interface MatchedBoard {
@@ -73,6 +76,7 @@ interface MatchedBoard {
 
 const DEFAULT_STATUS_FIELD = "Статус";
 const DEFAULT_ORDER_FIELD = "Порядок";
+const DEFAULT_BASE_TASK_FIELD = "BaseTask";
 const EMPTY_FACET_VALUE = " __bn_empty__";
 
 interface BoardViewState {
@@ -531,6 +535,53 @@ export default class BoardNotesPlugin extends Plugin {
         if (!hasValue) el.addClass("bn-card-placeholder");
         this.makeFieldEditable(el, file, field, hasValue ? String(value) : "", true, draw);
       });
+
+      if (board) {
+        const allCards = this.getCards(board.cfg, board.boardPath);
+        const children = this.childCardsOf(allCards, file.path, board.cfg.baseTaskField);
+        if (children.length) {
+          const doneSet = this.doneStatusesOf(board.cfg);
+          const done = children.filter((ch) =>
+            doneSet.has(String(ch.fm[board!.cfg.statusField] ?? ""))
+          ).length;
+
+          const section = container.createDiv({ cls: "bn-card-children" });
+          const header = section.createDiv({ cls: "bn-card-children-header" });
+          header.createSpan({ text: "Дочерние задачи" });
+          header.createSpan({ cls: "bn-card-children-count", text: `${done}/${children.length}` });
+
+          const list = section.createDiv({ cls: "bn-card-children-list" });
+          children
+            .slice()
+            .sort(
+              (a, b) =>
+                (Number(a.fm[board!.cfg.orderField]) || 9999) -
+                (Number(b.fm[board!.cfg.orderField]) || 9999)
+            )
+            .forEach((child) => {
+              const status = String(child.fm[board!.cfg.statusField] ?? "");
+              const row = list.createDiv({
+                cls: "bn-card-children-item" + (doneSet.has(status) ? " done" : ""),
+              });
+              const link = row.createSpan({
+                cls: "bn-card-children-link",
+                text: child.file.basename,
+              });
+              link.setAttr("tabindex", "0");
+              link.addEventListener("click", (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                void this.app.workspace.getLeaf(false).openFile(child.file);
+              });
+              if (status) {
+                row.createSpan({
+                  cls: "bn-chip bn-card-children-status" + (doneSet.has(status) ? " active" : ""),
+                  text: status,
+                });
+              }
+            });
+        }
+      }
     };
 
     draw();
@@ -543,11 +594,14 @@ export default class BoardNotesPlugin extends Plugin {
 
     const evtRef = this.app.metadataCache.on("changed", (changed) => {
       if (changed.path === file.path) draw();
-      if (board && changed.path === board.boardPath) {
+      else if (board && changed.path === board.boardPath) {
         this.findMatchingBoardConfig(file).then((found) => {
           board = found;
           draw();
         });
+      } else if (board) {
+        // A sibling card's frontmatter changed — may affect this card's children list/progress.
+        draw();
       }
     });
     lifecycle.registerEvent(evtRef);
@@ -769,7 +823,36 @@ export default class BoardNotesPlugin extends Plugin {
       cardRatingField: cardRaw.ratingField ? String(cardRaw.ratingField) : undefined,
       cardRecField: cardRaw.recField ? String(cardRaw.recField) : undefined,
       autoArchive,
+      baseTaskField: raw.baseTaskField ? String(raw.baseTaskField) : DEFAULT_BASE_TASK_FIELD,
     };
+  }
+
+  /** Resolves a frontmatter link value (wikilink string, plain path, or array of either) to the paths of the files it points at. */
+  resolveLinkTargets(sourcePath: string, value: any): string[] {
+    const raw = Array.isArray(value) ? value : value != null && value !== "" ? [value] : [];
+    const paths: string[] = [];
+    for (const v of raw) {
+      if (typeof v !== "string") continue;
+      const match = v.trim().match(/^\[\[([^|\]]+)(?:\|[^\]]+)?\]\]$/);
+      const target = (match ? match[1] : v.trim()).split("#")[0].trim();
+      if (!target) continue;
+      const dest = this.app.metadataCache.getFirstLinkpathDest(target, sourcePath);
+      if (dest) paths.push(dest.path);
+    }
+    return paths;
+  }
+
+  /** Cards among `allCards` whose base-task field points at `parentPath`. */
+  childCardsOf(allCards: Card[], parentPath: string, field: string): Card[] {
+    return allCards.filter((c) =>
+      this.resolveLinkTargets(c.file.path, c.fm[field]).includes(parentPath)
+    );
+  }
+
+  /** Status values that count as "done" for progress purposes — the auto-archive source/target columns. */
+  doneStatusesOf(cfg: BoardConfig): Set<string> {
+    if (cfg.autoArchive) return new Set([cfg.autoArchive.source, cfg.autoArchive.target]);
+    return cfg.columns.length ? new Set([cfg.columns[cfg.columns.length - 1]]) : new Set();
   }
 
   fieldValues(fm: Record<string, any>, field: string): string[] {
@@ -831,6 +914,8 @@ export default class BoardNotesPlugin extends Plugin {
       facetFilterModes: new Map(),
       openEditor: null,
       searchQuery: "",
+      onlyBaseTasks: false,
+      onSettings: null,
     };
     const loadHidden = () => {
       const viewKey = `${ctx.sourcePath}::${cfg.tag}`;
@@ -838,11 +923,11 @@ export default class BoardNotesPlugin extends Plugin {
     };
     loadHidden();
 
-    const openSettings = () => {
+    state.onSettings = () => {
       new BoardSettingsModal(this.app, this, cfg, ctx.sourcePath).open();
     };
 
-    const redraw = () => this.draw(container, cfg, state, ctx.sourcePath, openSettings);
+    const redraw = () => this.draw(container, cfg, state, ctx.sourcePath);
     redraw();
 
     const evtRef = this.app.metadataCache.on("changed", async (changed) => {
@@ -865,7 +950,7 @@ export default class BoardNotesPlugin extends Plugin {
     lifecycle.registerEvent(deleteRef);
   }
 
-  draw(container: HTMLElement, cfg: BoardConfig, state: BoardState, sourcePath: string, onSettings?: () => void) {
+  draw(container: HTMLElement, cfg: BoardConfig, state: BoardState, sourcePath: string) {
     container.empty();
 
     const allCards = this.getCards(cfg, sourcePath);
@@ -893,6 +978,9 @@ export default class BoardNotesPlugin extends Plugin {
     const query = state.searchQuery.trim().toLowerCase();
 
     const cards = allCards.filter((c) => {
+      if (state.onlyBaseTasks && !this.childCardsOf(allCards, c.file.path, cfg.baseTaskField).length) {
+        return false;
+      }
       if (state.activeTags.size) {
         const matches = c.tags.some((t) => state.activeTags.has(t));
         if (state.tagFilterMode === "include" ? !matches : matches) return false;
@@ -942,12 +1030,11 @@ export default class BoardNotesPlugin extends Plugin {
       facetValues,
       sourcePath,
       cards.length,
-      allCards.length,
-      onSettings
+      allCards.length
     );
 
     if (cfg.flat) {
-      this.drawFlatGrid(container, cfg, state, cards, sourcePath);
+      this.drawFlatGrid(container, cfg, state, cards, allCards, sourcePath);
       return;
     }
 
@@ -955,7 +1042,7 @@ export default class BoardNotesPlugin extends Plugin {
 
     for (const col of columns) {
       if (state.hiddenColumns.has(col)) continue;
-      this.drawColumn(board, container, cfg, state, col, cards, sourcePath);
+      this.drawColumn(board, container, cfg, state, col, cards, allCards, sourcePath);
     }
   }
 
@@ -964,11 +1051,12 @@ export default class BoardNotesPlugin extends Plugin {
     cfg: BoardConfig,
     state: BoardState,
     cards: Card[],
+    allCards: Card[],
     sourcePath: string
   ) {
     const grid = container.createDiv({ cls: "bn-flat-grid" });
     cards.forEach((c) =>
-      this.renderCardEl(grid, cfg, state, c, container, sourcePath, false)
+      this.renderCardEl(grid, cfg, state, c, allCards, container, sourcePath, false)
     );
 
     const addBtn = container.createDiv({ cls: "bn-add bn-add-flat", text: "+ добавить" });
@@ -984,17 +1072,16 @@ export default class BoardNotesPlugin extends Plugin {
     facetValues: Map<string, Set<string>>,
     sourcePath: string,
     matched: number,
-    total: number,
-    onSettings?: () => void
+    total: number
   ) {
     const toolbar = container.createDiv({ cls: "bn-toolbar" });
 
     const searchRow = toolbar.createDiv({ cls: "bn-row bn-search-row" });
 
-    if (onSettings) {
+    if (state.onSettings) {
       const settingsBtn = searchRow.createDiv({ cls: "bn-settings-btn", text: "⚙" });
       settingsBtn.setAttr("aria-label", "Настройки доски");
-      settingsBtn.addEventListener("click", onSettings);
+      settingsBtn.addEventListener("click", () => state.onSettings?.());
     }
 
     const searchInput = searchRow.createEl("input", {
@@ -1018,6 +1105,15 @@ export default class BoardNotesPlugin extends Plugin {
         newInput.focus();
         if (caret != null) newInput.setSelectionRange(caret, caret);
       }
+    });
+
+    const baseTaskToggle = searchRow.createSpan({
+      cls: "bn-chip bn-base-task-toggle" + (state.onlyBaseTasks ? " active" : ""),
+      text: "Только базовые задачи",
+    });
+    baseTaskToggle.addEventListener("click", () => {
+      state.onlyBaseTasks = !state.onlyBaseTasks;
+      this.draw(container, cfg, state, sourcePath);
     });
 
     if (cfg.showTags && otherTags.size) {
@@ -1134,6 +1230,7 @@ export default class BoardNotesPlugin extends Plugin {
     cfg: BoardConfig,
     state: BoardState,
     c: Card,
+    allCards: Card[],
     container: HTMLElement,
     sourcePath: string,
     draggable: boolean
@@ -1147,6 +1244,16 @@ export default class BoardNotesPlugin extends Plugin {
       c.fm["Название"] ||
       c.file.basename;
     card.createDiv({ cls: "bn-card-title", text: String(title) });
+
+    const children = this.childCardsOf(allCards, c.file.path, cfg.baseTaskField);
+    if (children.length) {
+      const doneSet = this.doneStatusesOf(cfg);
+      const done = children.filter((ch) => doneSet.has(String(ch.fm[cfg.statusField] ?? ""))).length;
+      card.createDiv({
+        cls: "bn-card-progress" + (done === children.length ? " bn-card-progress-done" : ""),
+        text: `${done}/${children.length} готово`,
+      });
+    }
 
     const coverValue = cfg.coverField ? c.fm[cfg.coverField] : null;
     if (typeof coverValue === "string" && coverValue.trim()) {
@@ -1245,6 +1352,7 @@ export default class BoardNotesPlugin extends Plugin {
     state: BoardState,
     col: string,
     cards: Card[],
+    allCards: Card[],
     sourcePath: string
   ) {
     const colEl = board.createDiv({ cls: "bn-column" });
@@ -1265,7 +1373,7 @@ export default class BoardNotesPlugin extends Plugin {
     const list = colEl.createDiv({ cls: "bn-list" });
 
     colCards.forEach((c) =>
-      this.renderCardEl(list, cfg, state, c, container, sourcePath, true)
+      this.renderCardEl(list, cfg, state, c, allCards, container, sourcePath, true)
     );
 
     const addBtn = colEl.createDiv({ cls: "bn-add", text: "+ добавить" });
@@ -1424,6 +1532,7 @@ export default class BoardNotesPlugin extends Plugin {
     if (cfg.exclude.length) obj.exclude = cfg.exclude;
     if (cfg.statusField !== DEFAULT_STATUS_FIELD) obj.statusField = cfg.statusField;
     if (cfg.orderField !== DEFAULT_ORDER_FIELD) obj.orderField = cfg.orderField;
+    if (cfg.baseTaskField !== DEFAULT_BASE_TASK_FIELD) obj.baseTaskField = cfg.baseTaskField;
     if (cfg.showTags === false) obj.showTags = false;
     if (cfg.flat) obj.flat = true;
     if (cfg.coverField) obj.coverField = cfg.coverField;
@@ -1978,6 +2087,7 @@ class NewBoardModal extends Modal {
       cardFields: [],
       cardLinks: [],
       cardLabels: {},
+      baseTaskField: DEFAULT_BASE_TASK_FIELD,
     };
 
     const yaml = this.plugin.serializeConfig(cfg);

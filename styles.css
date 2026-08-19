@@ -83,6 +83,11 @@
   white-space: nowrap;
 }
 
+.bn-base-task-toggle {
+  flex: none;
+  white-space: nowrap;
+}
+
 .bn-chip {
   font-size: 0.78em;
   padding: 3px 9px;
@@ -475,6 +480,79 @@ textarea.bn-card-edit-input {
 
 .bn-edit-panel-inline .bn-edit-field-label {
   font-size: 0.8em;
+}
+
+.bn-card-progress {
+  display: inline-block;
+  font-size: 0.74em;
+  color: var(--text-muted);
+  background: var(--background-secondary);
+  border-radius: 100px;
+  padding: 1px 8px;
+  margin-top: 4px;
+}
+
+.bn-card-progress-done {
+  color: var(--text-success, var(--text-accent));
+}
+
+.bn-card-children {
+  margin-top: 4px;
+}
+
+.bn-card-children-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  font-size: 0.85em;
+  color: var(--text-faint);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.bn-card-children-count {
+  font-family: var(--font-monospace);
+  color: var(--text-muted);
+  text-transform: none;
+}
+
+.bn-card-children-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 4px;
+}
+
+.bn-card-children-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+  padding: 2px 0;
+}
+
+.bn-card-children-item.done .bn-card-children-link {
+  color: var(--text-faint);
+  text-decoration: line-through;
+}
+
+.bn-card-children-link {
+  cursor: pointer;
+  color: var(--text-accent);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.bn-card-children-link:hover {
+  text-decoration: underline;
+}
+
+.bn-card-children-status {
+  cursor: default;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .bn-edit-panel-inline .bn-edit-chips .bn-chip {
