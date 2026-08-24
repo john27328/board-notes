@@ -18,8 +18,14 @@ export interface TableColumn {
   label?: string;
 }
 
+export interface TableSort {
+  field: string;
+  direction: "asc" | "desc";
+}
+
 export interface TableConfig {
   columns: TableColumn[];
+  sort: TableSort[];
 }
 
 export interface BoardConfig {
@@ -67,7 +73,7 @@ export interface BoardState {
   onlyBaseTasks: boolean;
   view: "kanban" | "table";
   tableFilters: Map<string, string>;
-  tableSort: { field: string; direction: "asc" | "desc" } | null;
+  tableSort: TableSort[];
   onSettings: (() => void) | null;
 }
 

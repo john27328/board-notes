@@ -104,12 +104,13 @@ All options are read from the YAML inside the ` ```board ` block.
 | `facets` | string[] | `[]` | Frontmatter fields to expose as filter-chip rows in the toolbar (in addition to the automatic tag-filter row, which is always shown if the cards have extra tags). |
 | `vocab` | map of string → string[] | `{}` | Controlled vocabulary per field. Any field listed here gets an editable chip panel (in the ` ```tags ` block, in the vocab command/modal, and inline on each card) restricted to these values. |
 | `single` | string[] | `[]` | Subset of `vocab` field names that hold a single scalar value (not a list) — e.g. a priority or type field. Editing these replaces the value instead of toggling array membership. |
-| `meta` | string[] | `Год`/`Год выпуска` + `Оценка` | Frontmatter fields shown on the card face in the board view. Defaults to year + rating for backward compatibility; set explicitly for boards without those fields. |
+| `meta` | string[] | `[]` | Frontmatter fields shown on the card face in the board view. Only explicitly listed fields are shown. |
 | `coverField` | string | — | Frontmatter field containing an Obsidian wikilink to an image to display above the title on each board card. |
 | `showTags` | boolean | `true` | Set to `false` to hide the automatic tag-filter row. Useful when notes carry incidental real Obsidian tags unrelated to the board (e.g. a literal `#include` in a code snippet gets indexed as a tag and shows up as noise). |
 | `flat` | boolean | `false` | Skip Kanban columns entirely and render all matching cards as a single filterable grid. For reference indexes (FAQs, glossaries) that have topic tags but no workflow status — `statusField`/`orderField`/`columns` are ignored when this is set. |
 | `view` | `kanban` or `table` | `kanban` | Initial representation. The toolbar switcher changes the current view without changing card data. |
 | `table.columns` | list of `{field, label?}` | inferred | Table columns and their order. `__title` is a virtual note-title field (using `nameField`, then `Название`). Configure them in ⚙ or drag table headers. |
+| `table.sort` | list of `{field, direction}` | `[]` | Persistent table sort rules in priority order. `direction` is `asc` or `desc`. Configure them in ⚙; the first rule has the highest priority. |
 | `autoArchive` | object | — | Automatically moves cards from `source` to `target` after `afterDays` days since their last status change. `statusChangedField` defaults to `Статус изменён`. The check runs when Obsidian starts and hourly afterward. |
 | `card` | object | `{}` | Centralized settings for the ` ```card ` block (see below) — `fields`, `links`, `labels`, `ratingField`, `recField`. Applied to any note tagged for this board whose own ` ```card ` block is empty. |
 
@@ -125,6 +126,11 @@ table:
       label: Title
     - field: Status
     - field: Rating
+  sort:
+    - field: Status
+      direction: asc
+    - field: __title
+      direction: asc
 ```
 
 ### Filters
@@ -156,11 +162,11 @@ labels:
 
 | Key | Default | Description |
 |---|---|---|
-| `fields` | `[Оценка, Кинопоиск, Описание, Рекомендация]` (or the board's `card.fields`) | Which frontmatter fields to render, in order. Missing/empty fields are silently skipped. |
-| `ratingField` | `Оценка` | Rendered as `★ <value>`. |
-| `links` | `[{field: Кинопоиск}]` | A list of links — each renders as its own row with a clickable link (if the value looks like a URL) and its own edit pencil. Add more than one, e.g. a Pyrus link plus a separate merge-request link. |
+| `fields` | `[]` (or the board's `card.fields`) | Which frontmatter fields to render, in order. No fields are inferred when the setting is absent. |
+| `ratingField` | — | The field to render as `★ <value>`. |
+| `links` | `[]` | A list of links — each renders as its own row with a clickable link (if the value looks like a URL) and its own edit pencil. Add more than one, e.g. a Pyrus link plus a separate merge-request link. |
 | `linkField` / `linkLabel` | — | Old-style way to set a **single** link — equivalent to `links: [{field: linkField, label: linkLabel}]`. Still works; don't mix `links` and `linkField` in the same block. |
-| `recField` | `Рекомендация` | Rendered in an italic, accent-bordered block. |
+| `recField` | — | The field to render in an italic, accent-bordered block. |
 | `labels` | `{}` | Map of field name → display label for any other field in `fields`. Rendered as a small `Label: value` row instead of a full paragraph — use this for short metadata (IDs, counts) rather than prose. A value written as an Obsidian wikilink, such as `[[Базовая задача]]`, is rendered as a clickable internal link with a separate edit button. Fields in `fields` without a label and not matching one of the roles above are rendered as a plain paragraph (intended for longer text like a description). |
 | `showStatus` | `true` | Set to `false` to hide the status chip row (see below). |
 
@@ -213,7 +219,7 @@ Every non-`flat` board's toolbar has a ⚙ button that opens a settings modal ri
   - the × button deletes a column — any cards that were in it move to the first remaining column instead of disappearing from the board;
   - "+ add" appends a blank column at the end.
 - **Tags / vocab** — same idea for each `vocab` field: renaming a value batch-updates every card that had it. A field at the bottom lets you add a brand-new vocab field.
-- **Card** — editable lists for the centralized ` ```card ` config (see above): "Поля" (a plain list), "Ссылки" and "Подписи" (field → label pairs). These aren't tied to individual cards, so renaming here doesn't touch any note — it just changes what an empty ` ```card ` block displays.
+- **Card** — editable lists for the centralized ` ```card ` config (see above): "Поля" (a plain list), "Ссылки" and "Подписи" (field → label pairs), plus fields for the special rating and recommendation display. These aren't tied to individual cards, so renaming here doesn't touch any note — it just changes what an empty ` ```card ` block displays.
 - "Save" rewrites the ` ```board ` code block itself (via `stringifyYaml`) and applies all the renames to cards in one go; the live board re-parses its config and redraws immediately, no need to reopen the note.
 
 You can't rename the board's own `tag` or drag-reorder columns from this modal — see Known limitations.

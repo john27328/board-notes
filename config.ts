@@ -1,5 +1,5 @@
 import { parseYaml, stringifyYaml } from "obsidian";
-import type { AutoArchiveConfig, BoardConfig, CardLink, TableColumn } from "./types";
+import type { AutoArchiveConfig, BoardConfig, CardLink, TableColumn, TableSort } from "./types";
 
 export const DEFAULT_STATUS_FIELD = "Статус";
 export const DEFAULT_ORDER_FIELD = "Порядок";
@@ -25,6 +25,14 @@ export function parseBoardConfig(source: string): BoardConfig {
         .map((column: any) => ({
           field: String(column.field),
           label: column.label ? String(column.label) : undefined,
+        }))
+    : [];
+  const tableSort: TableSort[] = Array.isArray(tableRaw.sort)
+    ? tableRaw.sort
+        .filter((rule: any) => rule && rule.field)
+        .map((rule: any) => ({
+          field: String(rule.field),
+          direction: rule.direction === "desc" ? "desc" : "asc",
         }))
     : [];
   const cardLinks: CardLink[] = Array.isArray(cardRaw.links)
@@ -71,7 +79,7 @@ export function parseBoardConfig(source: string): BoardConfig {
     showTags: raw.showTags !== false,
     flat: raw.flat === true,
     view: raw.view === "table" ? "table" : "kanban",
-    table: { columns: tableColumns },
+    table: { columns: tableColumns, sort: tableSort },
     raw: source,
     cardFields: asStringList(cardRaw.fields),
     cardLinks,
@@ -106,6 +114,12 @@ export function serializeBoardConfig(cfg: BoardConfig): string {
       columns: cfg.table.columns.map((column) =>
         column.label ? { field: column.field, label: column.label } : { field: column.field }
       ),
+    };
+  }
+  if (cfg.table.sort.length) {
+    obj.table = {
+      ...(obj.table ?? {}),
+      sort: cfg.table.sort,
     };
   }
   if (cfg.autoArchive) obj.autoArchive = cfg.autoArchive;

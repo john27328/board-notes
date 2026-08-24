@@ -23,6 +23,7 @@ import type {
   CardLink,
   MatchedBoard,
   TableColumn,
+  TableSort,
 } from "./types";
 const EMPTY_FACET_VALUE = " __bn_empty__";
 
@@ -326,7 +327,7 @@ export default class BoardNotesPlugin extends Plugin {
         ? raw.fields.map((f: any) => String(f))
         : board?.cfg.cardFields.length
         ? board.cfg.cardFields
-        : ["Оценка", "Кинопоиск", "Описание", "Рекомендация"];
+        : [];
 
     const links = (): CardLink[] => {
       if (Array.isArray(raw.links)) {
@@ -339,7 +340,7 @@ export default class BoardNotesPlugin extends Plugin {
         return [{ field, label: raw.linkLabel ? String(raw.linkLabel) : undefined }];
       }
       if (board?.cfg.cardLinks.length) return board.cfg.cardLinks;
-      return hasLocalFields ? [] : [{ field: "Кинопоиск" }];
+      return [];
     };
 
     const labels = (): Record<string, string> => {
@@ -350,9 +351,9 @@ export default class BoardNotesPlugin extends Plugin {
     };
 
     const ratingField = () =>
-      raw.ratingField ? String(raw.ratingField) : board?.cfg.cardRatingField ?? "Оценка";
+      raw.ratingField ? String(raw.ratingField) : board?.cfg.cardRatingField;
     const recField = () =>
-      raw.recField ? String(raw.recField) : board?.cfg.cardRecField ?? "Рекомендация";
+      raw.recField ? String(raw.recField) : board?.cfg.cardRecField;
 
     const container = el.createDiv({ cls: "bn-card-view" });
     const lifecycle = new MarkdownRenderChild(container);
@@ -409,7 +410,7 @@ export default class BoardNotesPlugin extends Plugin {
           const hasValue = value != null && value !== "";
           const label =
             linkCfg.label ??
-            (field === "Кинопоиск" ? "Открыть на Кинопоиске ↗" : `Открыть (${field}) ↗`);
+            `Открыть (${field}) ↗`;
           if (hasValue && typeof value === "string" && /^https?:\/\//.test(value)) {
             const item = row.createSpan({ cls: "bn-card-link-item" });
             item.createEl("a", { cls: "bn-card-link", text: label, href: value });
@@ -772,7 +773,7 @@ export default class BoardNotesPlugin extends Plugin {
       onlyBaseTasks: false,
       view: cfg.view,
       tableFilters: new Map(),
-      tableSort: null,
+      tableSort: [...cfg.table.sort],
       onSettings: null,
     };
     const loadHidden = () => {
@@ -798,6 +799,7 @@ export default class BoardNotesPlugin extends Plugin {
         if (match) {
           cfg = match;
           loadHidden();
+          state.tableSort = [...cfg.table.sort];
         }
       }
       redraw();
@@ -975,18 +977,20 @@ export default class BoardNotesPlugin extends Plugin {
         })
       )
       .sort((a, b) => {
-        if (!state.tableSort) return 0;
-        const column = columns.find((item) => item.field === state.tableSort!.field);
-        if (!column) return 0;
-        const left = this.tableValue(a, column, cfg);
-        const right = this.tableValue(b, column, cfg);
-        const numericLeft = Number(left);
-        const numericRight = Number(right);
-        const result =
-          left !== "" && right !== "" && Number.isFinite(numericLeft) && Number.isFinite(numericRight)
-            ? numericLeft - numericRight
-            : left.localeCompare(right, undefined, { numeric: true, sensitivity: "base" });
-        return state.tableSort!.direction === "asc" ? result : -result;
+        for (const rule of state.tableSort) {
+          const column = columns.find((item) => item.field === rule.field);
+          if (!column) continue;
+          const left = this.tableValue(a, column, cfg);
+          const right = this.tableValue(b, column, cfg);
+          const numericLeft = Number(left);
+          const numericRight = Number(right);
+          const result =
+            left !== "" && right !== "" && Number.isFinite(numericLeft) && Number.isFinite(numericRight)
+              ? numericLeft - numericRight
+              : left.localeCompare(right, undefined, { numeric: true, sensitivity: "base" });
+          if (result) return rule.direction === "asc" ? result : -result;
+        }
+        return 0;
       });
 
     const wrap = container.createDiv({ cls: "bn-table-wrap" });
@@ -996,18 +1000,23 @@ export default class BoardNotesPlugin extends Plugin {
       const cell = head.createEl("th", { cls: "bn-table-header" });
       cell.draggable = true;
       cell.dataset.field = column.field;
-      const sort = state.tableSort?.field === column.field ? state.tableSort.direction : null;
+      const sortIndex = state.tableSort.findIndex((rule) => rule.field === column.field);
+      const sort = sortIndex >= 0 ? state.tableSort[sortIndex] : null;
       const label = cell.createSpan({
         cls: "bn-table-sort",
         text: `${column.label ?? (column.field === "__title" ? "Название" : column.field)}${
-          sort === "asc" ? " ↑" : sort === "desc" ? " ↓" : ""
-        }`,
+          sort?.direction === "asc" ? " ↑" : sort?.direction === "desc" ? " ↓" : ""
+        }${sortIndex >= 0 ? ` · ${sortIndex + 1}` : ""}`,
       });
       label.addEventListener("click", () => {
-        state.tableSort =
-          state.tableSort?.field === column.field
-            ? { field: column.field, direction: state.tableSort.direction === "asc" ? "desc" : "asc" }
-            : { field: column.field, direction: "asc" };
+        const existing = state.tableSort.find((rule) => rule.field === column.field);
+        state.tableSort = [
+          {
+            field: column.field,
+            direction: existing?.direction === "asc" ? "desc" : "asc",
+          },
+          ...state.tableSort.filter((rule) => rule.field !== column.field),
+        ];
         this.draw(container, cfg, state, sourcePath);
       });
       const filter = cell.createEl("input", {
@@ -1157,7 +1166,10 @@ export default class BoardNotesPlugin extends Plugin {
 
   private async persistTableColumns(cfg: BoardConfig, sourcePath: string, columns: TableColumn[]) {
     try {
-      await this.saveBoardConfig(sourcePath, cfg.raw, { ...cfg, table: { columns } });
+      await this.saveBoardConfig(sourcePath, cfg.raw, {
+        ...cfg,
+        table: { columns, sort: cfg.table.sort },
+      });
     } catch (error) {
       new Notice("board-notes: не удалось сохранить порядок колонок таблицы — " + error);
     }
@@ -1390,18 +1402,12 @@ export default class BoardNotesPlugin extends Plugin {
     }
 
     const metaBits: string[] = [];
-    if (cfg.meta.length) {
-      cfg.meta.forEach((field) => {
-        const v = c.fm[field];
-        if (v == null || v === "" || (Array.isArray(v) && !v.length)) return;
-        const display = Array.isArray(v) ? v.map(String).join(", ") : String(v);
-        metaBits.push(field === "Оценка" || field === "оценка" ? `★ ${display}` : display);
-      });
-    } else {
-      const year = c.fm["Год выпуска"] || c.fm["Год"];
-      if (year) metaBits.push(String(year));
-      if (c.fm["Оценка"]) metaBits.push("★ " + c.fm["Оценка"]);
-    }
+    cfg.meta.forEach((field) => {
+      const v = c.fm[field];
+      if (v == null || v === "" || (Array.isArray(v) && !v.length)) return;
+      const display = Array.isArray(v) ? v.map(String).join(", ") : String(v);
+      metaBits.push(field === "Оценка" || field === "оценка" ? `★ ${display}` : display);
+    });
     if (metaBits.length) {
       card.createDiv({ cls: "bn-card-meta", text: metaBits.join(" · ") });
     }
@@ -1743,10 +1749,19 @@ interface PairRow {
   deleted: boolean;
 }
 
+interface TableSortRow {
+  fieldInput: HTMLInputElement;
+  directionSelect: HTMLSelectElement;
+  row: HTMLElement;
+  deleted: boolean;
+}
+
 class BoardSettingsModal extends Modal {
   private folderInput!: HTMLInputElement;
   private templateInput!: HTMLInputElement;
   private viewSelect!: HTMLSelectElement;
+  private cardRatingInput!: HTMLInputElement;
+  private cardRecInput!: HTMLInputElement;
   private columnRows: EditableRow[] = [];
   private vocabRows: Map<string, EditableRow[]> = new Map();
   private vocabFieldOrder: string[] = [];
@@ -1755,6 +1770,7 @@ class BoardSettingsModal extends Modal {
   private cardLinkRows: PairRow[] = [];
   private cardLabelRows: PairRow[] = [];
   private tableColumnRows: PairRow[] = [];
+  private tableSortRows: TableSortRow[] = [];
 
   constructor(
     app: App,
@@ -1799,10 +1815,43 @@ class BoardSettingsModal extends Modal {
     });
   }
 
+  private availableFieldNames(): string[] {
+    const fields = new Set<string>(["__title", this.cfg.statusField, this.cfg.orderField]);
+    if (this.cfg.nameField) fields.add(this.cfg.nameField);
+    [
+      ...this.cfg.meta,
+      ...this.cfg.facets,
+      ...Object.keys(this.cfg.vocab),
+      ...this.cfg.cardFields,
+      ...this.cfg.cardLinks.map((link) => link.field),
+      ...Object.keys(this.cfg.cardLabels),
+      this.cfg.cardRatingField,
+      this.cfg.cardRecField,
+    ].forEach((field) => {
+      if (field) fields.add(field);
+    });
+    this.plugin.getCards(this.cfg, this.boardPath).forEach((card) => {
+      Object.keys(card.fm).forEach((field) => fields.add(field));
+    });
+    return Array.from(fields).sort((a, b) => {
+      if (a === "__title") return -1;
+      if (b === "__title") return 1;
+      return a.localeCompare(b);
+    });
+  }
+
+  private createFieldSuggestions(container: HTMLElement, fields: string[]): string {
+    const id = `bn-field-suggestions-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const datalist = container.createEl("datalist", { attr: { id } });
+    fields.forEach((field) => datalist.createEl("option", { value: field }));
+    return id;
+  }
+
   private makeEditableList(
     container: HTMLElement,
     values: string[],
-    onDelete: (row: EditableRow) => void
+    onDelete: (row: EditableRow) => void,
+    fieldSuggestionsId?: string
   ): EditableRow[] {
     const rows: EditableRow[] = [];
     const list = container.createDiv({ cls: "bn-settings-list" });
@@ -1810,6 +1859,7 @@ class BoardSettingsModal extends Modal {
     const addRow = (value: string) => {
       const row = list.createDiv({ cls: "bn-settings-row" });
       const input = row.createEl("input", { type: "text", value }) as HTMLInputElement;
+      if (fieldSuggestionsId) input.setAttr("list", fieldSuggestionsId);
       this.addMoveButtons(row);
       const del = row.createSpan({ cls: "bn-settings-del", text: "×" });
       const entry: EditableRow = { original: value, input, row, deleted: false };
@@ -1834,7 +1884,8 @@ class BoardSettingsModal extends Modal {
     container: HTMLElement,
     pairs: { field: string; label: string }[],
     fieldPlaceholder: string,
-    labelPlaceholder: string
+    labelPlaceholder: string,
+    fieldSuggestionsId?: string
   ): PairRow[] {
     const rows: PairRow[] = [];
     const list = container.createDiv({ cls: "bn-settings-list" });
@@ -1846,6 +1897,7 @@ class BoardSettingsModal extends Modal {
         value: field,
         placeholder: fieldPlaceholder,
       }) as HTMLInputElement;
+      if (fieldSuggestionsId) fieldInput.setAttr("list", fieldSuggestionsId);
       const labelInput = row.createEl("input", {
         type: "text",
         value: label,
@@ -1870,6 +1922,43 @@ class BoardSettingsModal extends Modal {
     return rows;
   }
 
+  private makeTableSortList(
+    container: HTMLElement,
+    rules: TableSort[],
+    fieldSuggestionsId?: string
+  ): TableSortRow[] {
+    const rows: TableSortRow[] = [];
+    const list = container.createDiv({ cls: "bn-settings-list" });
+
+    const addRow = (field: string, direction: "asc" | "desc") => {
+      const row = list.createDiv({ cls: "bn-settings-row" });
+      const fieldInput = row.createEl("input", {
+        type: "text",
+        value: field,
+        placeholder: "поле или __title",
+      }) as HTMLInputElement;
+      if (fieldSuggestionsId) fieldInput.setAttr("list", fieldSuggestionsId);
+      const directionSelect = row.createEl("select") as HTMLSelectElement;
+      directionSelect.createEl("option", { value: "asc", text: "↑ по возрастанию" });
+      directionSelect.createEl("option", { value: "desc", text: "↓ по убыванию" });
+      directionSelect.value = direction;
+      this.addMoveButtons(row);
+      const del = row.createSpan({ cls: "bn-settings-del", text: "×" });
+      const entry: TableSortRow = { fieldInput, directionSelect, row, deleted: false };
+      del.addEventListener("click", () => {
+        entry.deleted = true;
+        row.style.display = "none";
+      });
+      rows.push(entry);
+      return entry;
+    };
+
+    rules.forEach((rule) => addRow(rule.field, rule.direction));
+    const addBtn = container.createDiv({ cls: "bn-settings-add", text: "+ добавить сортировку" });
+    addBtn.addEventListener("click", () => addRow("", "asc"));
+    return rows;
+  }
+
   render() {
     const { contentEl } = this;
     contentEl.empty();
@@ -1880,6 +1969,7 @@ class BoardSettingsModal extends Modal {
       cls: "bn-settings-hint",
       text: `Файл доски: ${this.boardPath}`,
     });
+    const fieldSuggestionsId = this.createFieldSuggestions(contentEl, this.availableFieldNames());
 
     // Папка
     contentEl.createEl("label", { text: "Папка для новых карточек" });
@@ -1924,8 +2014,15 @@ class BoardSettingsModal extends Modal {
         label: column.label ?? "",
       })),
       "поле или __title",
-      "подпись колонки"
+      "подпись колонки",
+      fieldSuggestionsId
     );
+    contentEl.createEl("div", { cls: "bn-settings-field-name", text: "Сортировки" });
+    contentEl.createEl("p", {
+      cls: "bn-settings-hint",
+      text: "Сортировки применяются сверху вниз: первая имеет наивысший приоритет. Поле должно быть среди колонок таблицы.",
+    });
+    this.tableSortRows = this.makeTableSortList(contentEl, this.cfg.table.sort, fieldSuggestionsId);
 
     // Метаданные на лицевой стороне карточки доски (под названием)
     contentEl.createEl("h4", { text: "Метаданные на карточке доски" });
@@ -1933,7 +2030,7 @@ class BoardSettingsModal extends Modal {
       cls: "bn-settings-hint",
       text: "Поля frontmatter, показываемые строкой под названием прямо на доске (не в развороте ```card```).",
     });
-    this.metaRows = this.makeEditableList(contentEl, this.cfg.meta, () => {});
+    this.metaRows = this.makeEditableList(contentEl, this.cfg.meta, () => {}, fieldSuggestionsId);
 
     // Словарь (Метки/Жанры/…)
     contentEl.createEl("h4", { text: "Теги / словарь" });
@@ -1951,6 +2048,7 @@ class BoardSettingsModal extends Modal {
       type: "text",
       placeholder: "имя нового поля (например Приоритет)",
     }) as HTMLInputElement;
+    newFieldInput.setAttr("list", fieldSuggestionsId);
     const newFieldBtn = newFieldRow.createEl("button", { text: "+ добавить поле" });
     newFieldBtn.addEventListener("click", () => {
       const name = newFieldInput.value.trim();
@@ -1972,14 +2070,15 @@ class BoardSettingsModal extends Modal {
     });
 
     contentEl.createEl("div", { cls: "bn-settings-field-name", text: "Поля" });
-    this.cardFieldRows = this.makeEditableList(contentEl, this.cfg.cardFields, () => {});
+    this.cardFieldRows = this.makeEditableList(contentEl, this.cfg.cardFields, () => {}, fieldSuggestionsId);
 
     contentEl.createEl("div", { cls: "bn-settings-field-name", text: "Ссылки (поле → подпись)" });
     this.cardLinkRows = this.makePairList(
       contentEl,
       this.cfg.cardLinks.map((l) => ({ field: l.field, label: l.label ?? "" })),
       "имя поля (например Морж)",
-      "подпись ссылки"
+      "подпись ссылки",
+      fieldSuggestionsId
     );
 
     contentEl.createEl("div", { cls: "bn-settings-field-name", text: "Подписи (поле → подпись)" });
@@ -1987,8 +2086,25 @@ class BoardSettingsModal extends Modal {
       contentEl,
       Object.entries(this.cfg.cardLabels).map(([field, label]) => ({ field, label })),
       "имя поля",
-      "подпись"
+      "подпись",
+      fieldSuggestionsId
     );
+
+    contentEl.createEl("label", { text: "Поле оценки (необязательно)" });
+    this.cardRatingInput = contentEl.createEl("input", {
+      type: "text",
+      value: this.cfg.cardRatingField ?? "",
+      placeholder: "например Оценка",
+    }) as HTMLInputElement;
+    this.cardRatingInput.setAttr("list", fieldSuggestionsId);
+
+    contentEl.createEl("label", { text: "Поле рекомендации (необязательно)" });
+    this.cardRecInput = contentEl.createEl("input", {
+      type: "text",
+      value: this.cfg.cardRecField ?? "",
+      placeholder: "например Рекомендация",
+    }) as HTMLInputElement;
+    this.cardRecInput.setAttr("list", fieldSuggestionsId);
 
     // Кнопки
     const footer = contentEl.createDiv({ cls: "bn-settings-footer" });
@@ -2075,6 +2191,13 @@ class BoardSettingsModal extends Modal {
           label: row.labelInput.value.trim() || undefined,
         }))
         .filter((column) => Boolean(column.field));
+      const tableSort: TableSort[] = this.byDomOrder(this.tableSortRows)
+        .filter((row) => !row.deleted)
+        .map((row): TableSort => ({
+          field: row.fieldInput.value.trim(),
+          direction: row.directionSelect.value === "desc" ? "desc" : "asc",
+        }))
+        .filter((rule) => Boolean(rule.field));
 
       const newCfg: BoardConfig = {
         ...this.cfg,
@@ -2087,7 +2210,9 @@ class BoardSettingsModal extends Modal {
         cardFields: newCardFields,
         cardLinks: newCardLinks,
         cardLabels: newCardLabels,
-        table: { columns: tableColumns },
+        cardRatingField: this.cardRatingInput.value.trim() || undefined,
+        cardRecField: this.cardRecInput.value.trim() || undefined,
+        table: { columns: tableColumns, sort: tableSort },
       };
 
       await this.plugin.saveBoardConfig(this.boardPath, this.cfg.raw, newCfg);
@@ -2197,7 +2322,7 @@ class NewBoardModal extends Modal {
       showTags: true,
       flat: false,
       view: "kanban",
-      table: { columns: [] },
+      table: { columns: [], sort: [] },
       raw: "",
       cardFields: [],
       cardLinks: [],
