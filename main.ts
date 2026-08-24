@@ -3,85 +3,28 @@ import {
   MarkdownRenderChild,
   MarkdownPostProcessorContext,
   Modal,
+  parseYaml,
   Plugin,
   TFile,
-  parseYaml,
-  stringifyYaml,
   Notice,
 } from "obsidian";
-
-interface CardLink {
-  field: string;
-  label?: string;
-}
-
-interface AutoArchiveConfig {
-  source: string;
-  target: string;
-  afterDays: number;
-  statusChangedField: string;
-}
-
-interface BoardConfig {
-  tag: string;
-  statusField: string;
-  orderField: string;
-  columns: string[];
-  folder?: string;
-  template?: string;
-  nameField?: string;
-  exclude: string[];
-  facets: string[];
-  vocab: Record<string, string[]>;
-  single: string[];
-  meta: string[];
-  coverField?: string;
-  showTags: boolean;
-  flat: boolean;
-  raw: string;
-  // Centralized ```card``` display config — used by cards whose own
-  // ```card``` block is empty, so the layout only has to be defined once
-  // on the board instead of copy-pasted into every note/template.
-  cardFields: string[];
-  cardLinks: CardLink[];
-  cardLabels: Record<string, string>;
-  cardRatingField?: string;
-  cardRecField?: string;
-  autoArchive?: AutoArchiveConfig;
-  baseTaskField: string;
-}
-
-interface Card {
-  file: TFile;
-  fm: Record<string, any>;
-  tags: string[];
-}
-
-interface BoardState {
-  hiddenColumns: Set<string>;
-  activeTags: Set<string>;
-  tagFilterMode: "include" | "exclude";
-  activeFacets: Map<string, Set<string>>;
-  facetFilterModes: Map<string, "include" | "exclude">;
-  openEditor: string | null;
-  searchQuery: string;
-  onlyBaseTasks: boolean;
-  onSettings: (() => void) | null;
-}
-
-interface MatchedBoard {
-  cfg: BoardConfig;
-  boardPath: string;
-}
-
-const DEFAULT_STATUS_FIELD = "Статус";
-const DEFAULT_ORDER_FIELD = "Порядок";
-const DEFAULT_BASE_TASK_FIELD = "BaseTask";
+import {
+  DEFAULT_BASE_TASK_FIELD,
+  DEFAULT_ORDER_FIELD,
+  DEFAULT_STATUS_FIELD,
+  parseBoardConfig,
+  serializeBoardConfig,
+} from "./config";
+import type {
+  BoardConfig,
+  BoardState,
+  BoardViewState,
+  Card,
+  CardLink,
+  MatchedBoard,
+  TableColumn,
+} from "./types";
 const EMPTY_FACET_VALUE = " __bn_empty__";
-
-interface BoardViewState {
-  hiddenColumns: string[];
-}
 
 export default class BoardNotesPlugin extends Plugin {
   viewState: Record<string, BoardViewState> = {};
@@ -736,95 +679,7 @@ export default class BoardNotesPlugin extends Plugin {
   }
 
   parseConfig(source: string): BoardConfig {
-    const raw = (parseYaml(source) ?? {}) as Record<string, any>;
-    const columns = Array.isArray(raw.columns)
-      ? raw.columns.map((c: any) => String(c))
-      : [];
-    const exclude = Array.isArray(raw.exclude)
-      ? raw.exclude.map((e: any) => String(e))
-      : raw.exclude
-      ? [String(raw.exclude)]
-      : [];
-    const facets = Array.isArray(raw.facets)
-      ? raw.facets.map((f: any) => String(f))
-      : raw.facets
-      ? [String(raw.facets)]
-      : [];
-    const vocab: Record<string, string[]> = {};
-    if (raw.vocab && typeof raw.vocab === "object") {
-      for (const key of Object.keys(raw.vocab)) {
-        const v = raw.vocab[key];
-        vocab[key] = Array.isArray(v) ? v.map((x: any) => String(x)) : [];
-      }
-    }
-    const single = Array.isArray(raw.single)
-      ? raw.single.map((f: any) => String(f))
-      : raw.single
-      ? [String(raw.single)]
-      : [];
-    const meta = Array.isArray(raw.meta)
-      ? raw.meta.map((f: any) => String(f))
-      : raw.meta
-      ? [String(raw.meta)]
-      : [];
-
-    const cardRaw = raw.card && typeof raw.card === "object" ? raw.card : {};
-    const cardFields = Array.isArray(cardRaw.fields)
-      ? cardRaw.fields.map((f: any) => String(f))
-      : [];
-    const cardLinks: CardLink[] = Array.isArray(cardRaw.links)
-      ? cardRaw.links
-          .filter((l: any) => l && l.field)
-          .map((l: any) => ({
-            field: String(l.field),
-            label: l.label ? String(l.label) : undefined,
-          }))
-      : [];
-    const cardLabels: Record<string, string> =
-      cardRaw.labels && typeof cardRaw.labels === "object"
-        ? Object.fromEntries(
-            Object.entries(cardRaw.labels).map(([k, v]) => [k, String(v)])
-          )
-        : {};
-    const autoArchiveRaw = raw.autoArchive && typeof raw.autoArchive === "object" ? raw.autoArchive : null;
-    const afterDays = Number(autoArchiveRaw?.afterDays);
-    const autoArchive =
-      autoArchiveRaw?.source && autoArchiveRaw?.target && Number.isFinite(afterDays) && afterDays >= 0
-        ? {
-            source: String(autoArchiveRaw.source),
-            target: String(autoArchiveRaw.target),
-            afterDays,
-            statusChangedField: autoArchiveRaw.statusChangedField
-              ? String(autoArchiveRaw.statusChangedField)
-              : "Статус изменён",
-          }
-        : undefined;
-
-    return {
-      tag: raw.tag ? String(raw.tag) : "",
-      statusField: raw.statusField ? String(raw.statusField) : DEFAULT_STATUS_FIELD,
-      orderField: raw.orderField ? String(raw.orderField) : DEFAULT_ORDER_FIELD,
-      columns,
-      folder: raw.folder ? String(raw.folder) : undefined,
-      template: raw.template ? String(raw.template) : undefined,
-      nameField: raw.nameField ? String(raw.nameField) : undefined,
-      exclude,
-      facets,
-      vocab,
-      single,
-      meta,
-      coverField: raw.coverField ? String(raw.coverField) : undefined,
-      showTags: raw.showTags === false ? false : true,
-      flat: raw.flat === true,
-      raw: source,
-      cardFields,
-      cardLinks,
-      cardLabels,
-      cardRatingField: cardRaw.ratingField ? String(cardRaw.ratingField) : undefined,
-      cardRecField: cardRaw.recField ? String(cardRaw.recField) : undefined,
-      autoArchive,
-      baseTaskField: raw.baseTaskField ? String(raw.baseTaskField) : DEFAULT_BASE_TASK_FIELD,
-    };
+    return parseBoardConfig(source);
   }
 
   /** Resolves a frontmatter link value (wikilink string, plain path, or array of either) to the paths of the files it points at. */
@@ -915,6 +770,9 @@ export default class BoardNotesPlugin extends Plugin {
       openEditor: null,
       searchQuery: "",
       onlyBaseTasks: false,
+      view: cfg.view,
+      tableFilters: new Map(),
+      tableSort: null,
       onSettings: null,
     };
     const loadHidden = () => {
@@ -1033,6 +891,11 @@ export default class BoardNotesPlugin extends Plugin {
       allCards.length
     );
 
+    if (state.view === "table") {
+      this.drawTable(container, cfg, state, cards, sourcePath);
+      return;
+    }
+
     if (cfg.flat) {
       this.drawFlatGrid(container, cfg, state, cards, allCards, sourcePath);
       return;
@@ -1063,6 +926,243 @@ export default class BoardNotesPlugin extends Plugin {
     addBtn.addEventListener("click", () => this.createCard(cfg, cards));
   }
 
+  defaultTableColumns(cfg: BoardConfig): TableColumn[] {
+    const fields = [
+      "__title",
+      ...(cfg.flat ? [] : [cfg.statusField]),
+      ...cfg.meta,
+      ...cfg.facets,
+      ...Object.keys(cfg.vocab),
+    ];
+    return Array.from(new Set(fields)).map((field) => ({
+      field,
+      label: field === "__title" ? cfg.nameField ?? "Название" : undefined,
+    }));
+  }
+
+  tableColumnsFor(cfg: BoardConfig): TableColumn[] {
+    return cfg.table.columns.length ? cfg.table.columns : this.defaultTableColumns(cfg);
+  }
+
+  private tableStorageField(field: string, cfg: BoardConfig): string {
+    return field === "__title" ? cfg.nameField ?? "Название" : field;
+  }
+
+  private tableValue(card: Card, column: TableColumn, cfg: BoardConfig): string {
+    if (column.field === "__title") {
+      return String(
+        (cfg.nameField && card.fm[cfg.nameField]) || card.fm["Название"] || card.file.basename
+      );
+    }
+    const value = card.fm[column.field];
+    return Array.isArray(value) ? value.map(String).join(", ") : value == null ? "" : String(value);
+  }
+
+  drawTable(
+    container: HTMLElement,
+    cfg: BoardConfig,
+    state: BoardState,
+    cards: Card[],
+    sourcePath: string
+  ) {
+    const columns = this.tableColumnsFor(cfg);
+    const filtered = cards
+      .filter((card) =>
+        (cfg.flat || !state.hiddenColumns.has(String(card.fm[cfg.statusField] ?? ""))) &&
+        columns.every((column) => {
+          const filter = state.tableFilters.get(column.field)?.trim().toLowerCase();
+          return !filter || this.tableValue(card, column, cfg).toLowerCase().includes(filter);
+        })
+      )
+      .sort((a, b) => {
+        if (!state.tableSort) return 0;
+        const column = columns.find((item) => item.field === state.tableSort!.field);
+        if (!column) return 0;
+        const left = this.tableValue(a, column, cfg);
+        const right = this.tableValue(b, column, cfg);
+        const numericLeft = Number(left);
+        const numericRight = Number(right);
+        const result =
+          left !== "" && right !== "" && Number.isFinite(numericLeft) && Number.isFinite(numericRight)
+            ? numericLeft - numericRight
+            : left.localeCompare(right, undefined, { numeric: true, sensitivity: "base" });
+        return state.tableSort!.direction === "asc" ? result : -result;
+      });
+
+    const wrap = container.createDiv({ cls: "bn-table-wrap" });
+    const table = wrap.createEl("table", { cls: "bn-table" });
+    const head = table.createEl("thead").createEl("tr");
+    columns.forEach((column) => {
+      const cell = head.createEl("th", { cls: "bn-table-header" });
+      cell.draggable = true;
+      cell.dataset.field = column.field;
+      const sort = state.tableSort?.field === column.field ? state.tableSort.direction : null;
+      const label = cell.createSpan({
+        cls: "bn-table-sort",
+        text: `${column.label ?? (column.field === "__title" ? "Название" : column.field)}${
+          sort === "asc" ? " ↑" : sort === "desc" ? " ↓" : ""
+        }`,
+      });
+      label.addEventListener("click", () => {
+        state.tableSort =
+          state.tableSort?.field === column.field
+            ? { field: column.field, direction: state.tableSort.direction === "asc" ? "desc" : "asc" }
+            : { field: column.field, direction: "asc" };
+        this.draw(container, cfg, state, sourcePath);
+      });
+      const filter = cell.createEl("input", {
+        cls: "bn-table-filter",
+        type: "search",
+        placeholder: "Фильтр",
+      }) as HTMLInputElement;
+      filter.dataset.field = column.field;
+      filter.value = state.tableFilters.get(column.field) ?? "";
+      filter.addEventListener("click", (event) => event.stopPropagation());
+      filter.addEventListener("input", () => {
+        state.tableFilters.set(column.field, filter.value);
+        const caret = filter.selectionStart;
+        this.draw(container, cfg, state, sourcePath);
+        const replacement = Array.from(
+          container.querySelectorAll<HTMLInputElement>(".bn-table-filter")
+        ).find((input) => input.dataset.field === column.field);
+        if (replacement) {
+          replacement.focus();
+          if (caret != null) replacement.setSelectionRange(caret, caret);
+        }
+      });
+      cell.addEventListener("dragstart", (event) => {
+        event.dataTransfer?.setData("text/plain", column.field);
+        event.dataTransfer!.effectAllowed = "move";
+      });
+      cell.addEventListener("dragover", (event) => event.preventDefault());
+      cell.addEventListener("drop", (event) => {
+        event.preventDefault();
+        const dragged = event.dataTransfer?.getData("text/plain");
+        if (!dragged || dragged === column.field) return;
+        const reordered = [...columns];
+        const from = reordered.findIndex((item) => item.field === dragged);
+        const to = reordered.findIndex((item) => item.field === column.field);
+        if (from < 0 || to < 0) return;
+        const [moved] = reordered.splice(from, 1);
+        reordered.splice(to, 0, moved);
+        void this.persistTableColumns(cfg, sourcePath, reordered);
+      });
+    });
+
+    const body = table.createEl("tbody");
+    filtered.forEach((card) => {
+      const row = body.createEl("tr");
+      columns.forEach((column) => this.renderTableCell(row, card, column, cfg, state, container, sourcePath));
+    });
+
+    const footer = container.createDiv({ cls: "bn-table-footer" });
+    footer.createSpan({ cls: "bn-search-count", text: `${filtered.length} / ${cards.length}` });
+    const addButton = footer.createSpan({ cls: "bn-add bn-table-add", text: "+ добавить" });
+    const firstStatus = cfg.flat ? undefined : cfg.columns[0];
+    addButton.addEventListener("click", () => this.createCard(cfg, cards, firstStatus));
+  }
+
+  private renderTableCell(
+    row: HTMLTableRowElement,
+    card: Card,
+    column: TableColumn,
+    cfg: BoardConfig,
+    state: BoardState,
+    container: HTMLElement,
+    sourcePath: string
+  ) {
+    const cell = row.createEl("td", { cls: "bn-table-cell", text: this.tableValue(card, column, cfg) });
+    cell.setAttr("title", "Двойной клик — редактировать");
+    let openTimer: number | null = null;
+    cell.addEventListener("dblclick", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      if (openTimer != null) window.clearTimeout(openTimer);
+      this.editTableCell(cell, card, column, cfg, state, container, sourcePath);
+    });
+    if (column.field === "__title") {
+      cell.addEventListener("click", () => {
+        if (openTimer != null) window.clearTimeout(openTimer);
+        openTimer = window.setTimeout(() => {
+          openTimer = null;
+          void this.app.workspace.getLeaf(false).openFile(card.file);
+        }, 220);
+      });
+    }
+  }
+
+  private editTableCell(
+    cell: HTMLTableCellElement,
+    card: Card,
+    column: TableColumn,
+    cfg: BoardConfig,
+    state: BoardState,
+    container: HTMLElement,
+    sourcePath: string
+  ) {
+    const field = this.tableStorageField(column.field, cfg);
+    const current = card.fm[field];
+    cell.empty();
+    const vocab = cfg.vocab[field] ?? [];
+    const statusValues = field === cfg.statusField ? cfg.columns : [];
+    const options = statusValues.length ? statusValues : vocab;
+    const isMulti = Boolean(vocab.length && !cfg.single.includes(field));
+
+    const save = async (value: string | string[]) => {
+      await this.app.fileManager.processFrontMatter(card.file, (fm) => {
+        fm[field] = value;
+        if (field === cfg.statusField && cfg.autoArchive) fm[cfg.autoArchive.statusChangedField] = this.today();
+      });
+      this.draw(container, cfg, state, sourcePath);
+    };
+
+    if (options.length) {
+      const select = cell.createEl("select", { cls: "bn-table-editor" }) as HTMLSelectElement;
+      select.addEventListener("click", (event) => event.stopPropagation());
+      select.multiple = isMulti;
+      if (!isMulti) select.createEl("option", { value: "", text: "—" });
+      options.forEach((option) => select.createEl("option", { value: option, text: option }));
+      const selected = Array.isArray(current) ? current.map(String) : current == null ? [] : [String(current)];
+      Array.from(select.options).forEach((option) => (option.selected = selected.includes(option.value)));
+      select.addEventListener("change", () => {
+        const value = isMulti
+          ? Array.from(select.selectedOptions).map((option) => option.value)
+          : select.value;
+        void save(value);
+      });
+      select.focus();
+      return;
+    }
+
+    const input = cell.createEl("input", {
+      cls: "bn-table-editor",
+      type: "text",
+      value: this.tableValue(card, column, cfg),
+    }) as HTMLInputElement;
+    input.addEventListener("click", (event) => event.stopPropagation());
+    let saved = false;
+    const commit = () => {
+      if (saved) return;
+      saved = true;
+      void save(input.value.trim());
+    };
+    input.addEventListener("blur", commit);
+    input.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") commit();
+      if (event.key === "Escape") this.draw(container, cfg, state, sourcePath);
+    });
+    input.focus();
+    input.select();
+  }
+
+  private async persistTableColumns(cfg: BoardConfig, sourcePath: string, columns: TableColumn[]) {
+    try {
+      await this.saveBoardConfig(sourcePath, cfg.raw, { ...cfg, table: { columns } });
+    } catch (error) {
+      new Notice("board-notes: не удалось сохранить порядок колонок таблицы — " + error);
+    }
+  }
+
   drawToolbar(
     container: HTMLElement,
     cfg: BoardConfig,
@@ -1083,6 +1183,23 @@ export default class BoardNotesPlugin extends Plugin {
       settingsBtn.setAttr("aria-label", "Настройки доски");
       settingsBtn.addEventListener("click", () => state.onSettings?.());
     }
+
+    const tableViewBtn = searchRow.createSpan({
+      cls: "bn-chip bn-view-toggle" + (state.view === "table" ? " active" : ""),
+      text: "Таблица",
+    });
+    tableViewBtn.addEventListener("click", () => {
+      state.view = "table";
+      this.draw(container, cfg, state, sourcePath);
+    });
+    const boardViewBtn = searchRow.createSpan({
+      cls: "bn-chip bn-view-toggle" + (state.view === "kanban" ? " active" : ""),
+      text: cfg.flat ? "Карточки" : "Доска",
+    });
+    boardViewBtn.addEventListener("click", () => {
+      state.view = "kanban";
+      this.draw(container, cfg, state, sourcePath);
+    });
 
     const searchInput = searchRow.createEl("input", {
       cls: "bn-search-input",
@@ -1525,44 +1642,7 @@ export default class BoardNotesPlugin extends Plugin {
   }
 
   serializeConfig(cfg: BoardConfig): string {
-    const obj: Record<string, any> = { tag: cfg.tag };
-    if (cfg.folder) obj.folder = cfg.folder;
-    if (cfg.template) obj.template = cfg.template;
-    if (cfg.nameField) obj.nameField = cfg.nameField;
-    if (cfg.exclude.length) obj.exclude = cfg.exclude;
-    if (cfg.statusField !== DEFAULT_STATUS_FIELD) obj.statusField = cfg.statusField;
-    if (cfg.orderField !== DEFAULT_ORDER_FIELD) obj.orderField = cfg.orderField;
-    if (cfg.baseTaskField !== DEFAULT_BASE_TASK_FIELD) obj.baseTaskField = cfg.baseTaskField;
-    if (cfg.showTags === false) obj.showTags = false;
-    if (cfg.flat) obj.flat = true;
-    if (cfg.coverField) obj.coverField = cfg.coverField;
-    if (cfg.meta.length) obj.meta = cfg.meta;
-    if (cfg.facets.length) obj.facets = cfg.facets;
-    if (Object.keys(cfg.vocab).length) obj.vocab = cfg.vocab;
-    if (cfg.single.length) obj.single = cfg.single;
-    if (cfg.columns.length) obj.columns = cfg.columns;
-    if (cfg.autoArchive) {
-      obj.autoArchive = {
-        source: cfg.autoArchive.source,
-        target: cfg.autoArchive.target,
-        afterDays: cfg.autoArchive.afterDays,
-        statusChangedField: cfg.autoArchive.statusChangedField,
-      };
-    }
-
-    const card: Record<string, any> = {};
-    if (cfg.cardFields.length) card.fields = cfg.cardFields;
-    if (cfg.cardLinks.length) {
-      card.links = cfg.cardLinks.map((l) =>
-        l.label ? { field: l.field, label: l.label } : { field: l.field }
-      );
-    }
-    if (Object.keys(cfg.cardLabels).length) card.labels = cfg.cardLabels;
-    if (cfg.cardRatingField) card.ratingField = cfg.cardRatingField;
-    if (cfg.cardRecField) card.recField = cfg.cardRecField;
-    if (Object.keys(card).length) obj.card = card;
-
-    return stringifyYaml(obj).trimEnd();
+    return serializeBoardConfig(cfg);
   }
 
   async saveBoardConfig(boardPath: string, oldRaw: string, cfg: BoardConfig): Promise<string> {
@@ -1666,6 +1746,7 @@ interface PairRow {
 class BoardSettingsModal extends Modal {
   private folderInput!: HTMLInputElement;
   private templateInput!: HTMLInputElement;
+  private viewSelect!: HTMLSelectElement;
   private columnRows: EditableRow[] = [];
   private vocabRows: Map<string, EditableRow[]> = new Map();
   private vocabFieldOrder: string[] = [];
@@ -1673,6 +1754,7 @@ class BoardSettingsModal extends Modal {
   private metaRows: EditableRow[] = [];
   private cardLinkRows: PairRow[] = [];
   private cardLabelRows: PairRow[] = [];
+  private tableColumnRows: PairRow[] = [];
 
   constructor(
     app: App,
@@ -1820,9 +1902,30 @@ class BoardSettingsModal extends Modal {
       this.close();
     });
 
+    contentEl.createEl("label", { text: "Стартовое представление" });
+    this.viewSelect = contentEl.createEl("select") as HTMLSelectElement;
+    this.viewSelect.createEl("option", { value: "kanban", text: "Доска" });
+    this.viewSelect.createEl("option", { value: "table", text: "Таблица" });
+    this.viewSelect.value = this.cfg.view;
+
     // Колонки
     contentEl.createEl("h4", { text: "Колонки" });
     this.columnRows = this.makeEditableList(contentEl, this.cfg.columns, () => {});
+
+    contentEl.createEl("h4", { text: "Таблица" });
+    contentEl.createEl("p", {
+      cls: "bn-settings-hint",
+      text: "Поля и порядок колонок таблицы. Используй __title для названия заметки; подпись необязательна. Порядок также можно менять перетаскиванием заголовков таблицы.",
+    });
+    this.tableColumnRows = this.makePairList(
+      contentEl,
+      this.plugin.tableColumnsFor(this.cfg).map((column) => ({
+        field: column.field,
+        label: column.label ?? "",
+      })),
+      "поле или __title",
+      "подпись колонки"
+    );
 
     // Метаданные на лицевой стороне карточки доски (под названием)
     contentEl.createEl("h4", { text: "Метаданные на карточке доски" });
@@ -1965,16 +2068,26 @@ class BoardSettingsModal extends Modal {
         if (field && label) newCardLabels[field] = label;
       }
 
+      const tableColumns: TableColumn[] = this.byDomOrder(this.tableColumnRows)
+        .filter((row) => !row.deleted)
+        .map((row) => ({
+          field: row.fieldInput.value.trim(),
+          label: row.labelInput.value.trim() || undefined,
+        }))
+        .filter((column) => Boolean(column.field));
+
       const newCfg: BoardConfig = {
         ...this.cfg,
         folder: newFolder || undefined,
         template: newTemplate || undefined,
+        view: this.viewSelect.value === "table" ? "table" : "kanban",
         columns: newColumns,
         meta: newMeta,
         vocab: newVocab,
         cardFields: newCardFields,
         cardLinks: newCardLinks,
         cardLabels: newCardLabels,
+        table: { columns: tableColumns },
       };
 
       await this.plugin.saveBoardConfig(this.boardPath, this.cfg.raw, newCfg);
@@ -2083,6 +2196,8 @@ class NewBoardModal extends Modal {
       meta: [],
       showTags: true,
       flat: false,
+      view: "kanban",
+      table: { columns: [] },
       raw: "",
       cardFields: [],
       cardLinks: [],

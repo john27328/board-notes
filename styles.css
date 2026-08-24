@@ -157,6 +157,100 @@
   cursor: pointer;
 }
 
+.bn-view-toggle {
+  flex: none;
+  white-space: nowrap;
+}
+
+.bn-table-wrap {
+  overflow: auto;
+  max-height: 70vh;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 6px;
+  background-color: var(--background-primary);
+  isolation: isolate;
+}
+
+.bn-table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  background-color: var(--background-primary);
+  font-size: 0.88em;
+}
+
+.bn-table th,
+.bn-table td {
+  min-width: 130px;
+  max-width: 360px;
+  padding: 7px 10px;
+  border-bottom: 1px solid var(--background-modifier-border);
+  vertical-align: top;
+  text-align: left;
+}
+
+.bn-table th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background-color: var(--background-primary);
+  background-clip: padding-box;
+  box-shadow: 0 1px 0 var(--background-modifier-border);
+  cursor: grab;
+}
+
+.bn-table-header:hover {
+  background: var(--background-modifier-hover);
+}
+
+.bn-table-sort {
+  display: block;
+  cursor: pointer;
+  font-weight: 600;
+  margin-bottom: 5px;
+}
+
+.bn-table-filter,
+.bn-table-editor {
+  box-sizing: border-box;
+  width: 100%;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 3px;
+  background: var(--background-primary);
+  color: var(--text-normal);
+  font: inherit;
+  padding: 3px 6px;
+}
+
+.bn-table-filter {
+  font-size: 0.9em;
+  font-weight: normal;
+}
+
+.bn-table-cell {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.bn-table-cell:hover {
+  background: var(--background-modifier-hover);
+}
+
+.bn-table-editor[multiple] {
+  min-height: 5.5em;
+}
+
+.bn-table-footer {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 6px;
+}
+
+.bn-table-add {
+  margin-top: 0;
+}
+
 .bn-add-flat {
   margin-top: 10px;
   display: inline-block;

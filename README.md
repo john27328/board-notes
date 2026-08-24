@@ -14,7 +14,7 @@ Board Notes takes the opposite approach: every board is defined by a single ` ``
 
 ## Features
 
-- **Kanban board** from a code block — drag and drop between and within columns
+- **Kanban board and table** from one code block — drag and drop between and within columns; the table supports creation, inline editing, filtering, and sorting
 - **Search** across title, description, recommendation, and tags
 - **Filter** by tag, by any frontmatter list field (genres, labels, whatever you configure), and by column visibility
 - **Controlled vocabulary** — define an allowed list of values per field (e.g. genres, tags) so editors pick from a fixed list instead of typing free text and accumulating near-duplicate variants
@@ -108,8 +108,24 @@ All options are read from the YAML inside the ` ```board ` block.
 | `coverField` | string | — | Frontmatter field containing an Obsidian wikilink to an image to display above the title on each board card. |
 | `showTags` | boolean | `true` | Set to `false` to hide the automatic tag-filter row. Useful when notes carry incidental real Obsidian tags unrelated to the board (e.g. a literal `#include` in a code snippet gets indexed as a tag and shows up as noise). |
 | `flat` | boolean | `false` | Skip Kanban columns entirely and render all matching cards as a single filterable grid. For reference indexes (FAQs, glossaries) that have topic tags but no workflow status — `statusField`/`orderField`/`columns` are ignored when this is set. |
+| `view` | `kanban` or `table` | `kanban` | Initial representation. The toolbar switcher changes the current view without changing card data. |
+| `table.columns` | list of `{field, label?}` | inferred | Table columns and their order. `__title` is a virtual note-title field (using `nameField`, then `Название`). Configure them in ⚙ or drag table headers. |
 | `autoArchive` | object | — | Automatically moves cards from `source` to `target` after `afterDays` days since their last status change. `statusChangedField` defaults to `Статус изменён`. The check runs when Obsidian starts and hourly afterward. |
 | `card` | object | `{}` | Centralized settings for the ` ```card ` block (see below) — `fields`, `links`, `labels`, `ratingField`, `recField`. Applied to any note tagged for this board whose own ` ```card ` block is empty. |
+
+### Table
+
+Open it with the **Table** button in the toolbar or set `view: table`. The shared search and tag/facet filters apply to both representations. Each table header has a text filter; clicking its label sorts ascending or descending. Double-click a cell to edit frontmatter: status and `vocab` fields show their allowed values, while other fields use text input. Double-clicking `__title` edits `nameField` (or `Название`); a single click opens the note.
+
+```yaml
+view: table
+table:
+  columns:
+    - field: __title
+      label: Title
+    - field: Status
+    - field: Rating
+```
 
 ### Filters
 
