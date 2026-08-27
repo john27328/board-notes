@@ -61,6 +61,19 @@
   border-color: var(--interactive-accent);
 }
 
+.bn-search-clear {
+  flex: none;
+  cursor: pointer;
+  color: var(--text-faint);
+  font-size: 1.2em;
+  line-height: 1;
+  padding: 2px 4px;
+}
+
+.bn-search-clear:hover {
+  color: var(--text-normal);
+}
+
 .bn-settings-btn {
   flex: none;
   cursor: pointer;
@@ -445,6 +458,16 @@
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
+}
+
+.bn-card-create-subtask {
+  cursor: pointer;
+  color: var(--text-faint);
+  font-size: 0.9em;
+}
+
+.bn-card-create-subtask:hover {
+  color: var(--text-normal);
 }
 
 .bn-card-rating {

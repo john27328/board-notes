@@ -382,6 +382,17 @@ export default class BoardNotesPlugin extends Plugin {
         settingsBtn.addEventListener("click", () => {
           new BoardSettingsModal(this.app, this, board!.cfg, board!.boardPath).open();
         });
+
+        const createSubtaskBtn = info.createSpan({
+          cls: "bn-card-create-subtask",
+          text: "+ подзадача",
+        });
+        createSubtaskBtn.setAttr("aria-label", "Создать подзадачу");
+        createSubtaskBtn.addEventListener("click", (event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          void this.createSubtask(board!.cfg, board!.boardPath, file);
+        });
       }
 
       if (showStatus && board && !board.cfg.flat) {
@@ -718,6 +729,23 @@ export default class BoardNotesPlugin extends Plugin {
     return arr.map((x) => String(x)).filter((x) => x.length > 0);
   }
 
+  private searchableValueParts(value: unknown): string[] {
+    if (value == null) return [];
+    if (Array.isArray(value)) return value.flatMap((item) => this.searchableValueParts(item));
+    if (typeof value !== "object") return [String(value)];
+
+    const entries = Object.entries(value as Record<string, unknown>);
+    if (!entries.length) return [String(value)];
+    return entries.flatMap(([field, item]) => [field, ...this.searchableValueParts(item)]);
+  }
+
+  private searchableFrontmatterParts(fm: Record<string, any>): string[] {
+    return Object.entries(fm).flatMap(([field, value]) => [
+      field,
+      ...this.searchableValueParts(value),
+    ]);
+  }
+
   getCards(cfg: BoardConfig, sourcePath: string): Card[] {
     const files = this.app.vault.getMarkdownFiles();
     const result: Card[] = [];
@@ -859,10 +887,7 @@ export default class BoardNotesPlugin extends Plugin {
         );
         const haystack = [
           title,
-          c.fm["Описание"],
-          c.fm["описание"],
-          c.fm["Рекомендация"],
-          c.fm["рекомендация"],
+          ...this.searchableFrontmatterParts(c.fm),
           ...c.tags,
         ]
           .filter(Boolean)
@@ -1216,9 +1241,19 @@ export default class BoardNotesPlugin extends Plugin {
     const searchInput = searchRow.createEl("input", {
       cls: "bn-search-input",
       type: "text",
-      placeholder: "Поиск по названию, описанию, тегам…",
+      placeholder: "Поиск по всем полям карточки…",
     });
     searchInput.value = state.searchQuery;
+    if (state.searchQuery) {
+      const clearSearch = searchRow.createSpan({ cls: "bn-search-clear", text: "×" });
+      clearSearch.setAttr("aria-label", "Очистить поиск");
+      clearSearch.addEventListener("click", () => {
+        state.searchQuery = "";
+        this.draw(container, cfg, state, sourcePath);
+        const newInput = container.querySelector(".bn-search-input") as HTMLInputElement | null;
+        newInput?.focus();
+      });
+    }
     searchRow.createSpan({
       cls: "bn-search-count",
       text: state.searchQuery ? `${matched} / ${total}` : `${total}`,
@@ -1604,7 +1639,34 @@ export default class BoardNotesPlugin extends Plugin {
     return updatedFrontmatter + content.slice(frontmatter.length);
   }
 
-  async createCard(cfg: BoardConfig, cards: Card[], status?: string) {
+  async createSubtask(cfg: BoardConfig, boardPath: string, parent: TFile) {
+    const cards = this.getCards(cfg, boardPath);
+    await this.createCard(cfg, cards, undefined, parent);
+  }
+
+  private async inheritSubtaskFields(cfg: BoardConfig, parent: TFile, child: TFile) {
+    const parentFm = this.app.metadataCache.getFileCache(parent)?.frontmatter ?? {};
+    const excluded = new Set(
+      [
+        cfg.statusField,
+        cfg.orderField,
+        cfg.baseTaskField,
+        cfg.autoArchive?.statusChangedField,
+        "created",
+        "updated",
+      ]
+        .filter((field): field is string => Boolean(field))
+        .map((field) => field.toLocaleLowerCase())
+    );
+
+    await this.app.fileManager.processFrontMatter(child, (fm) => {
+      for (const [field, value] of Object.entries(parentFm)) {
+        if (!excluded.has(field.toLocaleLowerCase())) fm[field] = value;
+      }
+    });
+  }
+
+  async createCard(cfg: BoardConfig, cards: Card[], status?: string, baseTask?: TFile) {
     const folder = (cfg.folder ?? "").replace(/^\/+|\/+$/g, "");
     const base = "Новая заметка";
     let name = base;
@@ -1635,13 +1697,22 @@ export default class BoardNotesPlugin extends Plugin {
 
     const order = this.nextOrder(cfg, cards, status);
     content = this.setFrontmatterField(content, cfg.orderField, String(order));
+    if (baseTask) {
+      const target = baseTask.path.replace(/\.md$/i, "");
+      content = this.setFrontmatterField(
+        content,
+        cfg.baseTaskField,
+        JSON.stringify(`[[${target}]]`)
+      );
+    }
     if (cfg.autoArchive) {
       content = this.setFrontmatterField(content, cfg.autoArchive.statusChangedField, this.today());
     }
 
     try {
       const file = await this.app.vault.create(path, content);
-      await this.app.workspace.getLeaf(false).openFile(file);
+      if (baseTask) await this.inheritSubtaskFields(cfg, baseTask, file);
+      await this.app.workspace.getLeaf(baseTask ? "tab" : false).openFile(file);
     } catch (e) {
       new Notice("board-notes: не удалось создать заметку — " + e);
     }

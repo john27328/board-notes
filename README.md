@@ -15,7 +15,7 @@ Board Notes takes the opposite approach: every board is defined by a single ` ``
 ## Features
 
 - **Kanban board and table** from one code block — drag and drop between and within columns; the table supports creation, inline editing, filtering, and sorting
-- **Search** across title, description, recommendation, and tags
+- **Search** across the title, tags, and every frontmatter field
 - **Filter** by tag, by any frontmatter list field (genres, labels, whatever you configure), and by column visibility
 - **Controlled vocabulary** — define an allowed list of values per field (e.g. genres, tags) so editors pick from a fixed list instead of typing free text and accumulating near-duplicate variants
 - **Inline card view** (` ```card `) — renders rating, a link field, description, and recommendation directly in a note's body
