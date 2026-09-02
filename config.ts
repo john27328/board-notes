@@ -2,7 +2,6 @@ import { parseYaml, stringifyYaml } from "obsidian";
 import type { AutoArchiveConfig, BoardConfig, CardLink, TableColumn, TableSort } from "./types";
 
 export const DEFAULT_STATUS_FIELD = "Статус";
-export const DEFAULT_ORDER_FIELD = "Порядок";
 export const DEFAULT_BASE_TASK_FIELD = "BaseTask";
 
 export function parseBoardConfig(source: string): BoardConfig {
@@ -65,7 +64,6 @@ export function parseBoardConfig(source: string): BoardConfig {
   return {
     tag: raw.tag ? String(raw.tag) : "",
     statusField: raw.statusField ? String(raw.statusField) : DEFAULT_STATUS_FIELD,
-    orderField: raw.orderField ? String(raw.orderField) : DEFAULT_ORDER_FIELD,
     columns: asStringList(raw.columns),
     folder: raw.folder ? String(raw.folder) : undefined,
     template: raw.template ? String(raw.template) : undefined,
@@ -98,7 +96,6 @@ export function serializeBoardConfig(cfg: BoardConfig): string {
   if (cfg.nameField) obj.nameField = cfg.nameField;
   if (cfg.exclude.length) obj.exclude = cfg.exclude;
   if (cfg.statusField !== DEFAULT_STATUS_FIELD) obj.statusField = cfg.statusField;
-  if (cfg.orderField !== DEFAULT_ORDER_FIELD) obj.orderField = cfg.orderField;
   if (cfg.baseTaskField !== DEFAULT_BASE_TASK_FIELD) obj.baseTaskField = cfg.baseTaskField;
   if (!cfg.showTags) obj.showTags = false;
   if (cfg.flat) obj.flat = true;

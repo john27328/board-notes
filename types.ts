@@ -31,7 +31,6 @@ export interface TableConfig {
 export interface BoardConfig {
   tag: string;
   statusField: string;
-  orderField: string;
   columns: string[];
   folder?: string;
   template?: string;

@@ -3,7 +3,7 @@
   "name": "Board Notes",
   "version": "0.1.0",
   "minAppVersion": "1.4.0",
-  "description": "Interactive Kanban boards rendered from a code block, backed entirely by note frontmatter — no cache file, order lives in the notes.",
+  "description": "Interactive Kanban boards rendered from a code block, backed by note frontmatter — no cache file; moving a card changes only its status.",
   "author": "Ivan Raptev",
   "isDesktopOnly": false
 }

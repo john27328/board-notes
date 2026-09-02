@@ -2,7 +2,7 @@
 
 Interactive Kanban boards for Obsidian, rendered from a single code block and backed entirely by note frontmatter.
 
-No cache file. No separate database. Column and card order live in the notes themselves, so everything stays plain-text, git-diffable, and mergeable.
+No cache file. No separate database. Column order and card sort rules live in the board block, while moving a card changes only its status, so everything stays plain-text, git-diffable, and mergeable.
 
 *(Русская версия: [README.ru.md](README.ru.md))*
 
@@ -10,11 +10,11 @@ No cache file. No separate database. Column and card order live in the notes the
 
 Plugins like [obsidian-projects](https://github.com/marcusolsson/obsidian-projects) keep board state (card order, view config) in a `data.json` cache file inside the plugin folder. That cache can drift from the actual notes, gets corrupted by encoding issues, and doesn't merge cleanly across machines or in git.
 
-Board Notes takes the opposite approach: every board is defined by a single ` ```board ` code block embedded in a note. It reads cards live from `metadataCache` by tag, and writes card order and status directly back into each card's frontmatter. Nothing is cached outside the vault's own files.
+Board Notes takes the opposite approach: every board is defined by a single ` ```board ` code block embedded in a note. It reads cards live from `metadataCache` by tag, and writes only the moved card's status back into its frontmatter. Nothing is cached outside the vault's own files.
 
 ## Features
 
-- **Kanban board and table** from one code block — drag and drop between and within columns; the table supports creation, inline editing, filtering, and sorting
+- **Kanban board and table** from one code block — drag cards between columns; sort rules define their order, while the table supports creation, inline editing, filtering, and sorting
 - **Search** across the title, tags, and every frontmatter field
 - **Filter** by tag, by any frontmatter list field (genres, labels, whatever you configure), and by column visibility
 - **Controlled vocabulary** — define an allowed list of values per field (e.g. genres, tags) so editors pick from a fixed list instead of typing free text and accumulating near-duplicate variants
@@ -85,7 +85,7 @@ columns:
 ```
 ````
 
-Any note tagged `#book` becomes a card, grouped into columns by its `Статус`/`Status` frontmatter field (configurable). Drag a card to another column to change its status; drag within a column to reorder — both are written back to the card's frontmatter immediately.
+Any note tagged `#book` becomes a card, grouped into columns by its `Статус`/`Status` frontmatter field (configurable). Drag a card to another column to change its status. Card order is always defined by the board's saved sort rules.
 
 ## Configuration reference
 
@@ -97,7 +97,6 @@ All options are read from the YAML inside the ` ```board ` block.
 | `folder` | string | vault root | Folder new cards are created in via the "+ добавить" button. |
 | `template` | string | — | Path to a template note. New cards are created from it, with the status field patched to match the column clicked. |
 | `statusField` | string | `Статус` | Frontmatter field used to group cards into columns. |
-| `orderField` | string | `Порядок` | Frontmatter field used to persist each card's position within its column. Pick a name that doesn't collide with an existing field. |
 | `nameField` | string | — | Frontmatter field to use as the card title. Falls back to a `Название` field, then the file's basename. |
 | `columns` | string[] | inferred | Explicit, ordered list of status values to show as columns. If omitted, columns are inferred from whatever status values are actually in use. |
 | `exclude` | string[] | `[]` | Vault-relative paths to exclude from the board even if tagged (e.g. the template file, if it carries the tag itself). The note hosting the board is always excluded automatically. |
@@ -107,10 +106,10 @@ All options are read from the YAML inside the ` ```board ` block.
 | `meta` | string[] | `[]` | Frontmatter fields shown on the card face in the board view. Only explicitly listed fields are shown. |
 | `coverField` | string | — | Frontmatter field containing an Obsidian wikilink to an image to display above the title on each board card. |
 | `showTags` | boolean | `true` | Set to `false` to hide the automatic tag-filter row. Useful when notes carry incidental real Obsidian tags unrelated to the board (e.g. a literal `#include` in a code snippet gets indexed as a tag and shows up as noise). |
-| `flat` | boolean | `false` | Skip Kanban columns entirely and render all matching cards as a single filterable grid. For reference indexes (FAQs, glossaries) that have topic tags but no workflow status — `statusField`/`orderField`/`columns` are ignored when this is set. |
+| `flat` | boolean | `false` | Skip Kanban columns entirely and render all matching cards as a single filterable grid. For reference indexes (FAQs, glossaries) that have topic tags but no workflow status — `statusField`/`columns` are ignored when this is set. |
 | `view` | `kanban` or `table` | `kanban` | Initial representation. The toolbar switcher changes the current view without changing card data. |
 | `table.columns` | list of `{field, label?}` | inferred | Table columns and their order. `__title` is a virtual note-title field (using `nameField`, then `Название`). Configure them in ⚙ or drag table headers. |
-| `table.sort` | list of `{field, direction}` | `[]` | Persistent table sort rules in priority order. `direction` is `asc` or `desc`. Configure them in ⚙; the first rule has the highest priority. |
+| `table.sort` | list of `{field, direction}` | `[]` | Persistent card sort rules in priority order, applied to both the board and table. `direction` is `asc` or `desc`; `__modified` is the note's modification date. Configure them in ⚙; the first rule has the highest priority. |
 | `autoArchive` | object | — | Automatically moves cards from `source` to `target` after `afterDays` days since their last status change. `statusChangedField` defaults to `Статус изменён`. The check runs when Obsidian starts and hourly afterward. |
 | `card` | object | `{}` | Centralized settings for the ` ```card ` block (see below) — `fields`, `links`, `labels`, `ratingField`, `recField`. Applied to any note tagged for this board whose own ` ```card ` block is empty. |
 
@@ -231,7 +230,7 @@ The **Board Notes: Создать новую доску** command (command palet
 ## How data is stored
 
 - **Column** = the note's `statusField` frontmatter value (a plain string).
-- **Position within a column** = the note's `orderField` frontmatter value (an integer, rewritten for the whole column on every drop).
+- **Card order** = `table.sort` rules in the board block. Dragging never changes it or rewrites neighboring cards.
 - **Vocabulary-controlled values** = plain frontmatter list fields (or scalar, for `single` fields) — the vocab list itself lives only in the `board` block's config, not duplicated per note.
 
 Nothing is written outside the notes' own frontmatter. Deleting the plugin leaves your notes fully intact and readable as plain YAML frontmatter.
@@ -239,7 +238,7 @@ Nothing is written outside the notes' own frontmatter. Deleting the plugin leave
 ## Known limitations
 
 - One board = one code block = one tag. Boards that need to mix multiple tags aren't supported.
-- Reordering persists by rewriting every card's `orderField` in the destination column on drop — fine for boards with tens of cards, potentially slow with many hundreds.
+- Cards can only be moved between columns: that changes one card's status, while order within a column is determined by sort rules.
 - No mobile-specific touch drag-and-drop testing has been done.
 - `vocab`/`facets` field names are matched by exact string — frontmatter field renames require updating the board config to match.
 - The settings modal (⚙) can rename column and vocab *values* (with a batch card update), but not the board's own `tag` or field names (`statusField`, `vocab` keys) — those still need a manual code-block edit.

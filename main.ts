@@ -10,7 +10,6 @@ import {
 } from "obsidian";
 import {
   DEFAULT_BASE_TASK_FIELD,
-  DEFAULT_ORDER_FIELD,
   DEFAULT_STATUS_FIELD,
   parseBoardConfig,
   serializeBoardConfig,
@@ -391,7 +390,7 @@ export default class BoardNotesPlugin extends Plugin {
         createSubtaskBtn.addEventListener("click", (event) => {
           event.preventDefault();
           event.stopPropagation();
-          void this.createSubtask(board!.cfg, board!.boardPath, file);
+          void this.createSubtask(board!.cfg, file);
         });
       }
 
@@ -506,14 +505,7 @@ export default class BoardNotesPlugin extends Plugin {
           header.createSpan({ cls: "bn-card-children-count", text: `${done}/${children.length}` });
 
           const list = section.createDiv({ cls: "bn-card-children-list" });
-          children
-            .slice()
-            .sort(
-              (a, b) =>
-                (Number(a.fm[board!.cfg.orderField]) || 9999) -
-                (Number(b.fm[board!.cfg.orderField]) || 9999)
-            )
-            .forEach((child) => {
+          this.sortCards(children, board.cfg.table.sort, board.cfg).forEach((child) => {
               const status = String(child.fm[board!.cfg.statusField] ?? "");
               const row = list.createDiv({
                 cls: "bn-card-children-item" + (doneSet.has(status) ? " done" : ""),
@@ -945,12 +937,12 @@ export default class BoardNotesPlugin extends Plugin {
     sourcePath: string
   ) {
     const grid = container.createDiv({ cls: "bn-flat-grid" });
-    cards.forEach((c) =>
+    this.sortCards(cards, state.tableSort, cfg).forEach((c) =>
       this.renderCardEl(grid, cfg, state, c, allCards, container, sourcePath, false)
     );
 
     const addBtn = container.createDiv({ cls: "bn-add bn-add-flat", text: "+ добавить" });
-    addBtn.addEventListener("click", () => this.createCard(cfg, cards));
+    addBtn.addEventListener("click", () => this.createCard(cfg));
   }
 
   defaultTableColumns(cfg: BoardConfig): TableColumn[] {
@@ -981,8 +973,28 @@ export default class BoardNotesPlugin extends Plugin {
         (cfg.nameField && card.fm[cfg.nameField]) || card.fm["Название"] || card.file.basename
       );
     }
+    if (column.field === "__modified") return new Date(card.file.stat.mtime).toISOString();
     const value = card.fm[column.field];
     return Array.isArray(value) ? value.map(String).join(", ") : value == null ? "" : String(value);
+  }
+
+  private compareCards(left: Card, right: Card, sort: TableSort[], cfg: BoardConfig): number {
+    for (const rule of sort) {
+      const leftValue = this.tableValue(left, { field: rule.field }, cfg);
+      const rightValue = this.tableValue(right, { field: rule.field }, cfg);
+      const numericLeft = Number(leftValue);
+      const numericRight = Number(rightValue);
+      const result =
+        leftValue !== "" && rightValue !== "" && Number.isFinite(numericLeft) && Number.isFinite(numericRight)
+          ? numericLeft - numericRight
+          : leftValue.localeCompare(rightValue, undefined, { numeric: true, sensitivity: "base" });
+      if (result) return rule.direction === "asc" ? result : -result;
+    }
+    return left.file.path.localeCompare(right.file.path, undefined, { sensitivity: "base" });
+  }
+
+  private sortCards(cards: Card[], sort: TableSort[], cfg: BoardConfig): Card[] {
+    return [...cards].sort((left, right) => this.compareCards(left, right, sort, cfg));
   }
 
   drawTable(
@@ -1001,22 +1013,7 @@ export default class BoardNotesPlugin extends Plugin {
           return !filter || this.tableValue(card, column, cfg).toLowerCase().includes(filter);
         })
       )
-      .sort((a, b) => {
-        for (const rule of state.tableSort) {
-          const column = columns.find((item) => item.field === rule.field);
-          if (!column) continue;
-          const left = this.tableValue(a, column, cfg);
-          const right = this.tableValue(b, column, cfg);
-          const numericLeft = Number(left);
-          const numericRight = Number(right);
-          const result =
-            left !== "" && right !== "" && Number.isFinite(numericLeft) && Number.isFinite(numericRight)
-              ? numericLeft - numericRight
-              : left.localeCompare(right, undefined, { numeric: true, sensitivity: "base" });
-          if (result) return rule.direction === "asc" ? result : -result;
-        }
-        return 0;
-      });
+      .sort((left, right) => this.compareCards(left, right, state.tableSort, cfg));
 
     const wrap = container.createDiv({ cls: "bn-table-wrap" });
     const table = wrap.createEl("table", { cls: "bn-table" });
@@ -1093,7 +1090,7 @@ export default class BoardNotesPlugin extends Plugin {
     footer.createSpan({ cls: "bn-search-count", text: `${filtered.length} / ${cards.length}` });
     const addButton = footer.createSpan({ cls: "bn-add bn-table-add", text: "+ добавить" });
     const firstStatus = cfg.flat ? undefined : cfg.columns[0];
-    addButton.addEventListener("click", () => this.createCard(cfg, cards, firstStatus));
+    addButton.addEventListener("click", () => this.createCard(cfg, firstStatus));
   }
 
   private renderTableCell(
@@ -1518,13 +1515,11 @@ export default class BoardNotesPlugin extends Plugin {
     const header = colEl.createDiv({ cls: "bn-column-header" });
     header.createSpan({ text: col });
 
-    const colCards = cards
-      .filter((c) => (c.fm[cfg.statusField] ?? "") === col)
-      .sort(
-        (a, b) =>
-          (Number(a.fm[cfg.orderField]) || 9999) -
-          (Number(b.fm[cfg.orderField]) || 9999)
-      );
+    const colCards = this.sortCards(
+      cards.filter((c) => (c.fm[cfg.statusField] ?? "") === col),
+      state.tableSort,
+      cfg
+    );
 
     header.createSpan({ cls: "bn-count", text: String(colCards.length) });
 
@@ -1535,18 +1530,9 @@ export default class BoardNotesPlugin extends Plugin {
     );
 
     const addBtn = colEl.createDiv({ cls: "bn-add", text: "+ добавить" });
-    addBtn.addEventListener("click", () => this.createCard(cfg, cards, col));
+    addBtn.addEventListener("click", () => this.createCard(cfg, col));
 
-    list.addEventListener("dragover", (e) => {
-      e.preventDefault();
-      const dragging = container.querySelector(
-        ".bn-card.dragging"
-      ) as HTMLElement | null;
-      if (!dragging) return;
-      const after = this.getDragAfterElement(list, e.clientY);
-      if (after == null) list.appendChild(dragging);
-      else list.insertBefore(dragging, after);
-    });
+    list.addEventListener("dragover", (e) => e.preventDefault());
 
     list.addEventListener("dragenter", () => list.addClass("bn-dragover"));
     list.addEventListener("dragleave", (e) => {
@@ -1558,26 +1544,9 @@ export default class BoardNotesPlugin extends Plugin {
     list.addEventListener("drop", async (e) => {
       e.preventDefault();
       list.removeClass("bn-dragover");
-      await this.persistColumn(list, cfg, col);
+      const path = e.dataTransfer?.getData("text/plain");
+      if (path) await this.persistCardStatus(path, cfg, col);
     });
-  }
-
-  getDragAfterElement(list: HTMLElement, y: number): HTMLElement | null {
-    const cards = Array.from(
-      list.querySelectorAll<HTMLElement>(".bn-card:not(.dragging)")
-    );
-    let closest: { offset: number; el: HTMLElement | null } = {
-      offset: -Infinity,
-      el: null,
-    };
-    for (const card of cards) {
-      const box = card.getBoundingClientRect();
-      const offset = y - box.top - box.height / 2;
-      if (offset < 0 && offset > closest.offset) {
-        closest = { offset, el: card };
-      }
-    }
-    return closest.el;
   }
 
   async toggleFieldValue(file: TFile, field: string, value: string) {
@@ -1594,32 +1563,15 @@ export default class BoardNotesPlugin extends Plugin {
     });
   }
 
-  async persistColumn(list: HTMLElement, cfg: BoardConfig, status: string) {
-    const cardEls = Array.from(list.querySelectorAll<HTMLElement>(".bn-card"));
-    for (let i = 0; i < cardEls.length; i++) {
-      const path = cardEls[i].dataset.path;
-      if (!path) continue;
-      const file = this.app.vault.getAbstractFileByPath(path);
-      if (!(file instanceof TFile)) continue;
-      await this.app.fileManager.processFrontMatter(file, (fm) => {
-        if (String(fm[cfg.statusField] ?? "") !== status) {
-          fm[cfg.statusField] = status;
-          if (cfg.autoArchive) fm[cfg.autoArchive.statusChangedField] = this.today();
-        }
-        fm[cfg.orderField] = i + 1;
-      });
-    }
-  }
-
-  nextOrder(cfg: BoardConfig, cards: Card[], status?: string): number {
-    const relevant = status
-      ? cards.filter((c) => (c.fm[cfg.statusField] ?? "") === status)
-      : cards;
-    const maxOrder = relevant.reduce((max, c) => {
-      const v = Number(c.fm[cfg.orderField]);
-      return Number.isFinite(v) && v > max ? v : max;
-    }, 0);
-    return maxOrder + 1;
+  async persistCardStatus(path: string, cfg: BoardConfig, status: string) {
+    const file = this.app.vault.getAbstractFileByPath(path);
+    if (!(file instanceof TFile)) return;
+    await this.app.fileManager.processFrontMatter(file, (fm) => {
+      if (String(fm[cfg.statusField] ?? "") !== status) {
+        fm[cfg.statusField] = status;
+        if (cfg.autoArchive) fm[cfg.autoArchive.statusChangedField] = this.today();
+      }
+    });
   }
 
   setFrontmatterField(content: string, field: string, value: string): string {
@@ -1639,9 +1591,8 @@ export default class BoardNotesPlugin extends Plugin {
     return updatedFrontmatter + content.slice(frontmatter.length);
   }
 
-  async createSubtask(cfg: BoardConfig, boardPath: string, parent: TFile) {
-    const cards = this.getCards(cfg, boardPath);
-    await this.createCard(cfg, cards, undefined, parent);
+  async createSubtask(cfg: BoardConfig, parent: TFile) {
+    await this.createCard(cfg, undefined, parent);
   }
 
   private async inheritSubtaskFields(cfg: BoardConfig, parent: TFile, child: TFile) {
@@ -1649,7 +1600,6 @@ export default class BoardNotesPlugin extends Plugin {
     const excluded = new Set(
       [
         cfg.statusField,
-        cfg.orderField,
         cfg.baseTaskField,
         cfg.autoArchive?.statusChangedField,
         "created",
@@ -1666,7 +1616,7 @@ export default class BoardNotesPlugin extends Plugin {
     });
   }
 
-  async createCard(cfg: BoardConfig, cards: Card[], status?: string, baseTask?: TFile) {
+  async createCard(cfg: BoardConfig, status?: string, baseTask?: TFile) {
     const folder = (cfg.folder ?? "").replace(/^\/+|\/+$/g, "");
     const base = "Новая заметка";
     let name = base;
@@ -1695,8 +1645,6 @@ export default class BoardNotesPlugin extends Plugin {
       }
     }
 
-    const order = this.nextOrder(cfg, cards, status);
-    content = this.setFrontmatterField(content, cfg.orderField, String(order));
     if (baseTask) {
       const target = baseTask.path.replace(/\.md$/i, "");
       content = this.setFrontmatterField(
@@ -1887,7 +1835,7 @@ class BoardSettingsModal extends Modal {
   }
 
   private availableFieldNames(): string[] {
-    const fields = new Set<string>(["__title", this.cfg.statusField, this.cfg.orderField]);
+    const fields = new Set<string>(["__title", "__modified", this.cfg.statusField]);
     if (this.cfg.nameField) fields.add(this.cfg.nameField);
     [
       ...this.cfg.meta,
@@ -2059,7 +2007,7 @@ class BoardSettingsModal extends Modal {
     const createBtn = tplRow.createEl("button", { text: "+ создать заметку" });
     createBtn.addEventListener("click", async () => {
       const cards = this.plugin.getCards(this.cfg, this.boardPath);
-      await this.plugin.createCard(this.cfg, cards);
+      await this.plugin.createCard(this.cfg);
       this.close();
     });
 
@@ -2091,7 +2039,7 @@ class BoardSettingsModal extends Modal {
     contentEl.createEl("div", { cls: "bn-settings-field-name", text: "Сортировки" });
     contentEl.createEl("p", {
       cls: "bn-settings-hint",
-      text: "Сортировки применяются сверху вниз: первая имеет наивысший приоритет. Поле должно быть среди колонок таблицы.",
+      text: "Сортировки применяются сверху вниз: первая имеет наивысший приоритет. Они задают порядок карточек и на доске, и в таблице; __modified — дата изменения заметки.",
     });
     this.tableSortRows = this.makeTableSortList(contentEl, this.cfg.table.sort, fieldSuggestionsId);
 
@@ -2381,7 +2329,6 @@ class NewBoardModal extends Modal {
     const cfg: BoardConfig = {
       tag,
       statusField: DEFAULT_STATUS_FIELD,
-      orderField: DEFAULT_ORDER_FIELD,
       columns,
       folder: this.folderInput.value.trim() || undefined,
       template: this.templateInput.value.trim() || undefined,
