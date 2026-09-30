@@ -27,6 +27,15 @@ Board Notes takes the opposite approach: every board is defined by a single ` ``
 - **"Create new board" command** — a wizard (tag, folder, template, columns) that generates a ready-to-use ` ```board ` code block in a fresh note
 - **Centralized card layout** — define ` ```card ` fields/links/labels once in the board config (`card:`) instead of copy-pasting them into every template and note; supports multiple links at once, not just one
 - **Automatic dates** — fills empty `created` and `updated` fields with today's date once, without overwriting existing values (`YYYY-MM-DD`)
+- **Auto-archive** (`autoArchive`) — moves cards from one status to another after N days, based on a "status changed" date that the plugin maintains itself
+- **Subtasks** — a card can point to a base task via a link field; the base task shows a `done/total` progress badge on the board and a list of child tasks in its ` ```card `, and a **+ subtask** button creates a child that inherits the parent's fields
+- **Copy buttons** — ⧉ next to card links and, for fields listed in `copyFields`, next to a value (e.g. a ticket ID)
+
+## Documentation
+
+- [Getting started](docs/getting-started.md)
+- [Examples](docs/examples.md)
+- [Building from source](docs/building.md)
 
 ## Screenshots
 
@@ -53,22 +62,7 @@ Not yet submitted. Once it is, you'll be able to install it directly from **Sett
 
 ## Building from source
 
-Requires Node.js (tested on v20+).
-
-```bash
-git clone <this-repo-url>
-cd board-notes
-npm install
-npm run build       # one-shot production build -> main.js
-npm run dev          # watch mode, rebuilds on save
-```
-
-When this repository is checked out as `plugins/board-notes` inside the companion vault
-repository, deploy a verified build to Obsidian with `npm run deploy`. The command runs
-the TypeScript check and production build, then copies `main.js`, `manifest.json`, and
-`styles.css` to `notes/.obsidian/plugins/board-notes`.
-
-`npm run build` produces a minified `main.js` with no source map. `npm run dev` produces an unminified build with an inline source map and watches for changes — point it at a symlinked/copied plugin folder inside a real vault for live development.
+See [docs/building.md](docs/building.md) (scripts, file layout, vault deployment with `npm run deploy`, release steps).
 
 ## Quick start
 
@@ -105,13 +99,14 @@ All options are read from the YAML inside the ` ```board ` block.
 | `single` | string[] | `[]` | Subset of `vocab` field names that hold a single scalar value (not a list) — e.g. a priority or type field. Editing these replaces the value instead of toggling array membership. |
 | `meta` | string[] | `[]` | Frontmatter fields shown on the card face in the board view. Only explicitly listed fields are shown. |
 | `coverField` | string | — | Frontmatter field containing an Obsidian wikilink to an image to display above the title on each board card. |
+| `baseTaskField` | string | `BaseTask` | Frontmatter field holding a wikilink to a card's base (parent) task. See [Subtasks](#subtasks). |
 | `showTags` | boolean | `true` | Set to `false` to hide the automatic tag-filter row. Useful when notes carry incidental real Obsidian tags unrelated to the board (e.g. a literal `#include` in a code snippet gets indexed as a tag and shows up as noise). |
 | `flat` | boolean | `false` | Skip Kanban columns entirely and render all matching cards as a single filterable grid. For reference indexes (FAQs, glossaries) that have topic tags but no workflow status — `statusField`/`columns` are ignored when this is set. |
 | `view` | `kanban` or `table` | `kanban` | Initial representation. The toolbar switcher changes the current view without changing card data. |
 | `table.columns` | list of `{field, label?}` | inferred | Table columns and their order. `__title` is a virtual note-title field (using `nameField`, then `Название`). Configure them in ⚙ or drag table headers. |
 | `table.sort` | list of `{field, direction}` | `[]` | Persistent card sort rules in priority order, applied to both the board and table. `direction` is `asc` or `desc`; `__modified` is the note's modification date. Configure them in ⚙; the first rule has the highest priority. |
 | `autoArchive` | object | — | Automatically moves cards from `source` to `target` after `afterDays` days since their last status change. `statusChangedField` defaults to `Статус изменён`. The check runs when Obsidian starts and hourly afterward. |
-| `card` | object | `{}` | Centralized settings for the ` ```card ` block (see below) — `fields`, `links`, `labels`, `ratingField`, `recField`. Applied to any note tagged for this board whose own ` ```card ` block is empty. |
+| `card` | object | `{}` | Centralized settings for the ` ```card ` block (see below) — `fields`, `links`, `labels`, `ratingField`, `recField`, `copyFields`. Applied to any note tagged for this board whose own ` ```card ` block is empty. |
 
 ### Table
 
@@ -166,14 +161,13 @@ labels:
 | `links` | `[]` | A list of links — each renders as its own row with a clickable link (if the value looks like a URL) and its own edit pencil. Add more than one, e.g. a Pyrus link plus a separate merge-request link. |
 | `linkField` / `linkLabel` | — | Old-style way to set a **single** link — equivalent to `links: [{field: linkField, label: linkLabel}]`. Still works; don't mix `links` and `linkField` in the same block. |
 | `recField` | — | The field to render in an italic, accent-bordered block. |
+| `copyFields` | `[]` (or the board's `card.copyFields`) | Fields (from `labels`) that get a ⧉ button to copy the value to the clipboard — handy for IDs. Link rows always have their own ⧉ button for URL values. |
 | `labels` | `{}` | Map of field name → display label for any other field in `fields`. Rendered as a small `Label: value` row instead of a full paragraph — use this for short metadata (IDs, counts) rather than prose. A value written as an Obsidian wikilink, such as `[[Базовая задача]]`, is rendered as a clickable internal link with a separate edit button. Fields in `fields` without a label and not matching one of the roles above are rendered as a plain paragraph (intended for longer text like a description). |
 | `showStatus` | `true` | Set to `false` to hide the status chip row (see below). |
 
-If nothing in `fields` has a value, the block shows a small "нет данных" placeholder instead of staying blank.
-
 #### Centralized configuration
 
-If the note's own ` ```card ` block is **empty** (no `fields`), the plugin looks for a board whose `tag` matches the note's tag and uses its `fields`/`links`/`labels`/`ratingField`/`recField` instead (the `card:` key inside the ` ```board ` block):
+If the note's own ` ```card ` block is **empty** (no `fields`), the plugin looks for a board whose `tag` matches the note's tag and uses its `fields`/`links`/`labels`/`ratingField`/`recField`/`copyFields` instead (the `card:` key inside the ` ```board ` block):
 
 ````markdown
 ```board
@@ -197,6 +191,14 @@ A card wired to a board also gets a small "⚙ поля карточки" button
 
 If the note's tag matches a (non-`flat`) ` ```board ` board, a row of column chips is rendered above the fields — the active one is highlighted, and clicking another immediately switches the note's `statusField` in frontmatter. The column list comes from the board's `columns`, or, if not set explicitly, from whatever `statusField` values are actually in use, same as on the board itself.
 
+### Subtasks
+
+Set `baseTaskField` (default `BaseTask`) on a child card to a wikilink to its parent, e.g. `BaseTask: "[[Parent task]]"`.
+
+- **Board** — the parent card shows a `done/total готово` badge; the toolbar has an **only base tasks** chip that hides everything except cards that have children.
+- **Card** (` ```card `) — a "child tasks" section lists the children with their statuses and a `done/total` counter; a **+ subtask** button in the header creates a new card from the board's template, sets its base-task link, copies the parent's other frontmatter fields (except status, the base-task field, `created`/`updated` and the auto-archive date) and opens it in a new tab.
+- **What counts as done** — with `autoArchive`, the `source` and `target` statuses; otherwise the last entry of `columns`.
+
 ### `tags` block
 
 ````markdown
@@ -213,15 +215,15 @@ You can also trigger the same editor from any note via the command palette (**Bo
 Every non-`flat` board's toolbar has a ⚙ button that opens a settings modal right over the code block, no manual YAML editing required:
 
 - **Folder** and **Template** — same as the `folder`/`template` config keys; a "+ create note" button next to the template field creates a card straight from the modal.
-- **Columns** — one text input per column:
+- **Columns** — one text input per column (↑/↓ buttons reorder; the same buttons exist in the other lists):
   - editing the text **renames** the column, and updates `statusField` on every card that had the old value;
   - the × button deletes a column — any cards that were in it move to the first remaining column instead of disappearing from the board;
   - "+ add" appends a blank column at the end.
 - **Tags / vocab** — same idea for each `vocab` field: renaming a value batch-updates every card that had it. A field at the bottom lets you add a brand-new vocab field.
-- **Card** — editable lists for the centralized ` ```card ` config (see above): "Поля" (a plain list), "Ссылки" and "Подписи" (field → label pairs), plus fields for the special rating and recommendation display. These aren't tied to individual cards, so renaming here doesn't touch any note — it just changes what an empty ` ```card ` block displays.
+- **Card** — editable lists for the centralized ` ```card ` config (see above): "Поля" (a plain list), "Ссылки" and "Подписи" (field → label pairs), "Копируемые поля", plus fields for the special rating and recommendation display. These aren't tied to individual cards, so renaming here doesn't touch any note — it just changes what an empty ` ```card ` block displays.
 - "Save" rewrites the ` ```board ` code block itself (via `stringifyYaml`) and applies all the renames to cards in one go; the live board re-parses its config and redraws immediately, no need to reopen the note.
 
-You can't rename the board's own `tag` or drag-reorder columns from this modal — see Known limitations.
+You can't rename the board's own `tag` from this modal — see Known limitations.
 
 ### Creating a new board
 
@@ -242,11 +244,10 @@ Nothing is written outside the notes' own frontmatter. Deleting the plugin leave
 - No mobile-specific touch drag-and-drop testing has been done.
 - `vocab`/`facets` field names are matched by exact string — frontmatter field renames require updating the board config to match.
 - The settings modal (⚙) can rename column and vocab *values* (with a batch card update), but not the board's own `tag` or field names (`statusField`, `vocab` keys) — those still need a manual code-block edit.
-- Column order isn't drag-reorderable in the settings modal — you can only add/remove/rename; reorder by editing the `columns` list in the code block directly.
 
 ## Contributing
 
-Issues and PRs welcome. The codebase is a single `main.ts` file — no build framework beyond esbuild, no bundled UI library, just the Obsidian API and vanilla DOM calls.
+Issues and PRs welcome. The code lives in `main.ts` (plugin, views, modals), `config.ts` (board config parsing/serialization) and `types.ts` — no build framework beyond esbuild, no bundled UI library, just the Obsidian API and vanilla DOM calls.
 
 ## License
 
