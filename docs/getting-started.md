@@ -48,6 +48,7 @@ Put an empty ` ```card ` block (usually in the template). Its layout comes from 
 
 ## Next
 
+- [What it looks like](appearance.md)
 - [Examples](examples.md)
 - [Full configuration reference](../README.md#configuration-reference)
 - [Building from source](building.md)

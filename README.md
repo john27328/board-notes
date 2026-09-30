@@ -33,13 +33,14 @@ Board Notes takes the opposite approach: every board is defined by a single ` ``
 
 ## Documentation
 
+- [What it looks like](docs/appearance.md) — board, cards, card template, table, settings
 - [Getting started](docs/getting-started.md)
 - [Examples](docs/examples.md)
 - [Building from source](docs/building.md)
 
 ## Screenshots
 
-_(add your own — a board with a few columns, the inline card view, and the vocab editor panel)_
+See [What it looks like](docs/appearance.md) for text mockups of the board, the card and the card template. Real screenshots can be added here.
 
 ## Installation
 
