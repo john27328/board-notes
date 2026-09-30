@@ -49,6 +49,7 @@ export interface BoardConfig {
   cardFields: string[];
   cardLinks: CardLink[];
   cardLabels: Record<string, string>;
+  cardCopyFields: string[];
   cardRatingField?: string;
   cardRecField?: string;
   autoArchive?: AutoArchiveConfig;

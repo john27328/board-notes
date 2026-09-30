@@ -349,6 +349,11 @@ export default class BoardNotesPlugin extends Plugin {
       return { ...(board?.cfg.cardLabels ?? {}), ...local };
     };
 
+    const copyFields = (): string[] =>
+      Array.isArray(raw.copyFields)
+        ? raw.copyFields.map((f: any) => String(f))
+        : board?.cfg.cardCopyFields ?? [];
+
     const ratingField = () =>
       raw.ratingField ? String(raw.ratingField) : board?.cfg.cardRatingField;
     const recField = () =>
@@ -364,6 +369,7 @@ export default class BoardNotesPlugin extends Plugin {
       const currentLabels = labels();
       const currentLinks = links();
       const linkFieldNames = new Set(currentLinks.map((l) => l.field));
+      const copyFieldNames = new Set(copyFields());
       const rating = ratingField();
       const rec = recField();
 
@@ -475,6 +481,18 @@ export default class BoardNotesPlugin extends Plugin {
           const isInternalLink = hasValue && this.renderInternalLink(valueEl, file, value);
           if (!isInternalLink) valueEl.setText(hasValue ? String(value) : "—");
           if (!hasValue) valueEl.addClass("bn-card-placeholder");
+          if (hasValue && copyFieldNames.has(field)) {
+            const copyBtn = meta.createSpan({ cls: "bn-card-link-copy", text: "⧉" });
+            copyBtn.setAttr("aria-label", "Скопировать значение");
+            copyBtn.addEventListener("click", async (e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              await navigator.clipboard.writeText(String(value));
+              const prev = copyBtn.getText();
+              copyBtn.setText("✓");
+              setTimeout(() => copyBtn.setText(prev), 1000);
+            });
+          }
           if (isInternalLink) {
             const editBtn = meta.createSpan({ cls: "bn-card-link-edit", text: "✎" });
             this.makeFieldEditable(editBtn, file, field, String(value), false, draw);
@@ -1788,6 +1806,7 @@ class BoardSettingsModal extends Modal {
   private metaRows: EditableRow[] = [];
   private cardLinkRows: PairRow[] = [];
   private cardLabelRows: PairRow[] = [];
+  private cardCopyFieldRows: EditableRow[] = [];
   private tableColumnRows: PairRow[] = [];
   private tableSortRows: TableSortRow[] = [];
 
@@ -2109,6 +2128,18 @@ class BoardSettingsModal extends Modal {
       fieldSuggestionsId
     );
 
+    contentEl.createEl("div", { cls: "bn-settings-field-name", text: "Копируемые поля" });
+    contentEl.createEl("p", {
+      cls: "bn-settings-hint",
+      text: "Показывает кнопку ⧉ рядом с полем в карточке — для быстрого копирования значения (например ID).",
+    });
+    this.cardCopyFieldRows = this.makeEditableList(
+      contentEl,
+      this.cfg.cardCopyFields,
+      () => {},
+      fieldSuggestionsId
+    );
+
     contentEl.createEl("label", { text: "Поле оценки (необязательно)" });
     this.cardRatingInput = contentEl.createEl("input", {
       type: "text",
@@ -2203,6 +2234,11 @@ class BoardSettingsModal extends Modal {
         if (field && label) newCardLabels[field] = label;
       }
 
+      const newCardCopyFields = this.byDomOrder(this.cardCopyFieldRows)
+        .filter((r) => !r.deleted)
+        .map((r) => r.input.value.trim())
+        .filter(Boolean);
+
       const tableColumns: TableColumn[] = this.byDomOrder(this.tableColumnRows)
         .filter((row) => !row.deleted)
         .map((row) => ({
@@ -2229,6 +2265,7 @@ class BoardSettingsModal extends Modal {
         cardFields: newCardFields,
         cardLinks: newCardLinks,
         cardLabels: newCardLabels,
+        cardCopyFields: newCardCopyFields,
         cardRatingField: this.cardRatingInput.value.trim() || undefined,
         cardRecField: this.cardRecInput.value.trim() || undefined,
         table: { columns: tableColumns, sort: tableSort },
@@ -2345,6 +2382,7 @@ class NewBoardModal extends Modal {
       cardFields: [],
       cardLinks: [],
       cardLabels: {},
+      cardCopyFields: [],
       baseTaskField: DEFAULT_BASE_TASK_FIELD,
     };
 

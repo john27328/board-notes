@@ -82,6 +82,7 @@ export function parseBoardConfig(source: string): BoardConfig {
     cardFields: asStringList(cardRaw.fields),
     cardLinks,
     cardLabels,
+    cardCopyFields: asStringList(cardRaw.copyFields),
     cardRatingField: cardRaw.ratingField ? String(cardRaw.ratingField) : undefined,
     cardRecField: cardRaw.recField ? String(cardRaw.recField) : undefined,
     autoArchive,
@@ -129,6 +130,7 @@ export function serializeBoardConfig(cfg: BoardConfig): string {
     );
   }
   if (Object.keys(cfg.cardLabels).length) card.labels = cfg.cardLabels;
+  if (cfg.cardCopyFields.length) card.copyFields = cfg.cardCopyFields;
   if (cfg.cardRatingField) card.ratingField = cfg.cardRatingField;
   if (cfg.cardRecField) card.recField = cfg.cardRecField;
   if (Object.keys(card).length) obj.card = card;
