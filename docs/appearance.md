@@ -4,6 +4,8 @@
 
 Text mockups of what the plugin renders. Labels are the real UI strings; colours and exact spacing follow your Obsidian theme.
 
+> In the mockups `/` stands for ✎ (edit), `*` for ★, `@` for ⚙, `#` for ⧉ (copy), `^`/`v` for ↑/↓, `x` for ×, `|` for the accent bar — plain ASCII keeps the frames aligned in any font.
+
 ## Board
 
 Config:
@@ -22,10 +24,10 @@ Rendered:
 
 ```text
 ┌──────────────────────────────────────────────────────────────────────┐
-│ ⚙  [Таблица] [Доска]  [ Поиск по всем полям карточки…   ] 12         │
+│ @  [Таблица] [Доска]  [ Поиск по всем полям карточки.   ] 12         │
 │    [Только базовые задачи]                                           │
-│ Теги · включать      [#urgent] [#infra]                      [×]     │
-│ Метки · включать     [bug] [feature] [пусто]                 [×]     │
+│ Теги - включать      [#urgent] [#infra]                      [x]     │
+│ Метки - включать     [bug] [feature] [пусто]                 [x]     │
 │ Колонки              [backlog] [in progress] [done]                  │
 ├───────────────────┬───────────────────┬──────────────────────────────┤
 │ backlog        3  │ in progress    2  │ done                      7  │
@@ -33,8 +35,8 @@ Rendered:
 │ │ Fix login     │ │ │ Release 1.2   │ │ │ Update docs            │   │
 │ │ 1/3 готово    │ │ │ 2/2 готово    │ │ │ Id 4812                │   │
 │ │ Id 4812       │ │ │ Id 4790       │ │ │ [feature]              │   │
-│ │ [bug]         │ │ │ [feature]     │ │ │ ✎ метки                │   │
-│ │ ✎ метки       │ │ │ ✎ метки       │ │ └────────────────────────┘   │
+│ │ [bug]         │ │ │ [feature]     │ │ │ / метки                │   │
+│ │ / метки       │ │ │ / метки       │ │ └────────────────────────┘   │
 │ └───────────────┘ │ └───────────────┘ │                              │
 │ + добавить        │ + добавить        │ + добавить                   │
 └───────────────────┴───────────────────┴──────────────────────────────┘
@@ -51,12 +53,12 @@ Top to bottom, each part only if present:
 
 ```text
 ┌──────────────────────────┐
-│ [cover image]            │  ← coverField
-│ Fix login                │  ← title: nameField → Название → file name
-│ 1/3 готово               │  ← progress badge of a base task
-│ Id 4812 · ★ 8            │  ← fields from meta
-│ [bug] [login]            │  ← current vocab values
-│ ✎ метки                  │  ← opens the inline vocab editor
+│ [cover image]            │  < coverField
+│ Fix login                │  < title: nameField > Название > file name
+│ 1/3 готово               │  < progress badge of a base task
+│ Id 4812 - * 8            │  < fields from meta
+│ [bug] [login]            │  < current vocab values
+│ / метки                  │  < opens the inline vocab editor
 └──────────────────────────┘
 ```
 
@@ -66,9 +68,9 @@ Click the card to open the note. **✎ метки** unfolds a panel of chips for
 
 ```text
 ┌──────────────────────────────────────────────────────────────┐
-│ ⚙  [Таблица] [Доска]  [ Поиск…  ]                            │
+│ @  [Таблица] [Доска]  [ Поиск.  ]                            │
 ├───────────────┬─────────────┬──────────┬─────────────────────┤
-│ Title ↑       │ Status      │ Rating   │ Метки               │
+│ Title ^       │ Status      │ Rating   │ Метки               │
 │ [Фильтр     ] │ [Фильтр   ] │ [Фильтр ]│ [Фильтр           ] │
 ├───────────────┼─────────────┼──────────┼─────────────────────┤
 │ Fix login     │ backlog     │ 8        │ bug                 │
@@ -100,19 +102,19 @@ Rendered inside the note:
 
 ```text
 ┌────────────────────────────────────────────────────────┐
-│ Задачи  #task                     ⚙   + подзадача      │  ← board link, tag, settings
-│ [backlog] [in progress] [done]                         │  ← status chips, click to change
-│ Открыть в Pyrus ↗ ⧉ ✎                                  │  ← link row: open, copy, edit
-│ ★ 8                                                    │  ← ratingField
-│ ID: 4812 ⧉                                             │  ← labelled field with copy
-│ Базовая задача: Release 1.2 ✎                          │  ← wikilink is clickable
-│ Описание текстом…                                      │  ← plain paragraph (click to edit)
-│ ▌ Рекомендация курсивом                                │  ← recField, accent bar
-│ ┌ Дочерние задачи ─────────────────────────── 1/3 ┐   │
-│ │ Fix login form                   [in progress]  │   │
-│ │ Fix token refresh                [done]         │   │
-│ └─────────────────────────────────────────────────┘   │
-│ ⚙ поля карточки                                        │
+│ Задачи  #task                     @   + подзадача      │  < board link, tag, settings
+│ [backlog] [in progress] [done]                         │  < status chips, click to change
+│ Открыть в Pyrus > # /                                  │  < link row: open, copy, edit
+│ * 8                                                    │  < ratingField
+│ ID: 4812 #                                             │  < labelled field with copy
+│ Базовая задача: Release 1.2 /                          │  < wikilink is clickable
+│ Описание текстом.                                      │  < plain paragraph (click to edit)
+│ | Рекомендация курсивом                                │  < recField, accent bar
+│ ┌ Дочерние задачи ─────────────────────────── 1/3 ┐    │
+│ │ Fix login form                   [in progress]  │    │
+│ │ Fix token refresh                [done]         │    │
+│ └─────────────────────────────────────────────────┘    │
+│ @ поля карточки                                        │
 └────────────────────────────────────────────────────────┘
 ```
 
@@ -143,7 +145,7 @@ A new note made from it opens as the card above. The ` ```tags ` block adds the 
 
 ```text
 ┌────────────────────────────────────────────────────────┐
-│ словарь: Задачи · по тегу #task                        │
+│ словарь: Задачи - по тегу #task                        │
 │ Метки   [bug] [feature]                                │
 └────────────────────────────────────────────────────────┘
 ```
@@ -151,15 +153,15 @@ A new note made from it opens as the card above. The ` ```tags ` block adds the 
 ## Board settings (⚙)
 
 ```text
-┌─ Настройки доски ────────────────────────────────┐
-│ Папка      [Tasks                              ] │
-│ Шаблон     [Templates/Task.md  ] [+ создать заметку] │
-│ Колонки    [backlog    ] ↑ ↓ ×                   │
-│            [in progress] ↑ ↓ ×     [+ добавить]  │
-│ Метки      [bug        ] ↑ ↓ ×                   │
-│ Карточка   Поля / Ссылки / Подписи / Копируемые поля │
-│ [Сохранить] [Отмена]     [+ создать новую доску] │
-└──────────────────────────────────────────────────┘
+┌─ Настройки доски ──────────────────────────────────┐
+│ Папка     [Tasks                               ]   │
+│ Шаблон    [Templates/Task.md] [+ создать заметку]  │
+│ Колонки   [backlog    ] ^ v x                      │
+│           [in progress] ^ v x   [+ добавить]       │
+│ Метки     [bug        ] ^ v x                      │
+│ Карточка  Поля, Ссылки, Подписи, Копируемые поля   │
+│ [Сохранить] [Отмена]  [+ создать новую доску]      │
+└────────────────────────────────────────────────────┘
 ```
 
 See also: [Getting started](getting-started.md), [Examples](examples.md).
