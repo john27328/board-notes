@@ -115,6 +115,10 @@ export default class BoardNotesPlugin extends Plugin {
     return `${now.getFullYear()}-${month}-${day}`;
   }
 
+  private touchUpdated(fm: Record<string, any>, cfg: BoardConfig) {
+    if (cfg.touchUpdated) fm.updated = this.today();
+  }
+
   private async ensureNoteDates(file: TFile) {
     if (!this.app.vault.getAbstractFileByPath(file.path)) return;
     const existing = this.app.metadataCache.getFileCache(file)?.frontmatter ?? {};
@@ -162,6 +166,7 @@ export default class BoardNotesPlugin extends Plugin {
               if (String(fm[cfg.statusField] ?? "") !== rule.source) return;
               fm[cfg.statusField] = rule.target;
               fm[rule.statusChangedField] = this.today();
+              this.touchUpdated(fm, cfg);
               moved++;
             });
           }
@@ -180,6 +185,7 @@ export default class BoardNotesPlugin extends Plugin {
       if (String(fm[cfg.statusField] ?? "") === status) return;
       fm[cfg.statusField] = status;
       if (cfg.autoArchive) fm[cfg.autoArchive.statusChangedField] = this.today();
+      this.touchUpdated(fm, cfg);
     });
   }
 
@@ -441,14 +447,14 @@ export default class BoardNotesPlugin extends Plugin {
               setTimeout(() => copyBtn.setText(prev), 1000);
             });
             const editBtn = item.createSpan({ cls: "bn-card-link-edit", text: "✎" });
-            this.makeFieldEditable(editBtn, file, field, String(value), false, draw);
+            this.makeFieldEditable(editBtn, file, field, String(value), false, draw, board?.cfg);
           } else {
             const item = row.createSpan({ cls: "bn-card-link-item" });
             const placeholder = item.createSpan({
               cls: "bn-card-link bn-card-placeholder",
               text: `+ ${(currentLabels[field] ?? field).toLowerCase()}`,
             });
-            this.makeFieldEditable(placeholder, file, field, "", false, draw);
+            this.makeFieldEditable(placeholder, file, field, "", false, draw, board?.cfg);
           }
         });
       }
@@ -462,7 +468,7 @@ export default class BoardNotesPlugin extends Plugin {
           const el = container.createDiv({ cls: "bn-card-rating" });
           el.setText(hasValue ? `★ ${value}` : `+ ${(currentLabels[field] ?? field).toLowerCase()}`);
           if (!hasValue) el.addClass("bn-card-placeholder");
-          this.makeFieldEditable(el, file, field, hasValue ? String(value) : "", false, draw);
+          this.makeFieldEditable(el, file, field, hasValue ? String(value) : "", false, draw, board?.cfg);
           return;
         }
 
@@ -470,7 +476,7 @@ export default class BoardNotesPlugin extends Plugin {
           const el = container.createDiv({ cls: "bn-card-rec" });
           el.setText(hasValue ? String(value) : `+ ${(currentLabels[field] ?? field).toLowerCase()}`);
           if (!hasValue) el.addClass("bn-card-placeholder");
-          this.makeFieldEditable(el, file, field, hasValue ? String(value) : "", true, draw);
+          this.makeFieldEditable(el, file, field, hasValue ? String(value) : "", true, draw, board?.cfg);
           return;
         }
 
@@ -495,9 +501,9 @@ export default class BoardNotesPlugin extends Plugin {
           }
           if (isInternalLink) {
             const editBtn = meta.createSpan({ cls: "bn-card-link-edit", text: "✎" });
-            this.makeFieldEditable(editBtn, file, field, String(value), false, draw);
+            this.makeFieldEditable(editBtn, file, field, String(value), false, draw, board?.cfg);
           } else {
-            this.makeFieldEditable(valueEl, file, field, hasValue ? String(value) : "", false, draw);
+            this.makeFieldEditable(valueEl, file, field, hasValue ? String(value) : "", false, draw, board?.cfg);
           }
           return;
         }
@@ -505,7 +511,7 @@ export default class BoardNotesPlugin extends Plugin {
         const el = container.createDiv({ cls: "bn-card-desc" });
         el.setText(hasValue ? String(value) : `+ ${field.toLowerCase()}`);
         if (!hasValue) el.addClass("bn-card-placeholder");
-        this.makeFieldEditable(el, file, field, hasValue ? String(value) : "", true, draw);
+        this.makeFieldEditable(el, file, field, hasValue ? String(value) : "", true, draw, board?.cfg);
       });
 
       if (board) {
@@ -599,7 +605,8 @@ export default class BoardNotesPlugin extends Plugin {
     field: string,
     currentValue: string,
     multiline: boolean,
-    onCancel: () => void
+    onCancel: () => void,
+    cfg?: BoardConfig
   ) {
     el.addClass("bn-card-editable");
     el.setAttr("tabindex", "0");
@@ -624,7 +631,9 @@ export default class BoardNotesPlugin extends Plugin {
         settled = true;
         const v = inputEl.value;
         await this.app.fileManager.processFrontMatter(file, (fm) => {
+          if (String(fm[field] ?? "") === v) return;
           fm[field] = v;
+          if (cfg) this.touchUpdated(fm, cfg);
         });
       };
 
@@ -695,8 +704,12 @@ export default class BoardNotesPlugin extends Plugin {
   }
 
   async setSingleValue(file: TFile, field: string, value: string, alreadyActive: boolean) {
+    const board = await this.findMatchingBoardConfig(file);
     await this.app.fileManager.processFrontMatter(file, (fm) => {
-      fm[field] = alreadyActive ? "" : value;
+      const nextValue = alreadyActive ? "" : value;
+      if (String(fm[field] ?? "") === nextValue) return;
+      fm[field] = nextValue;
+      if (board) this.touchUpdated(fm, board.cfg);
     });
   }
 
@@ -1159,8 +1172,10 @@ export default class BoardNotesPlugin extends Plugin {
 
     const save = async (value: string | string[]) => {
       await this.app.fileManager.processFrontMatter(card.file, (fm) => {
+        if (JSON.stringify(fm[field]) === JSON.stringify(value)) return;
         fm[field] = value;
         if (field === cfg.statusField && cfg.autoArchive) fm[cfg.autoArchive.statusChangedField] = this.today();
+        this.touchUpdated(fm, cfg);
       });
       this.draw(container, cfg, state, sourcePath);
     };
@@ -1568,6 +1583,7 @@ export default class BoardNotesPlugin extends Plugin {
   }
 
   async toggleFieldValue(file: TFile, field: string, value: string) {
+    const board = await this.findMatchingBoardConfig(file);
     await this.app.fileManager.processFrontMatter(file, (fm) => {
       const current: string[] = Array.isArray(fm[field])
         ? fm[field].map((x: any) => String(x))
@@ -1578,6 +1594,7 @@ export default class BoardNotesPlugin extends Plugin {
       if (idx >= 0) current.splice(idx, 1);
       else current.push(value);
       fm[field] = current;
+      if (board) this.touchUpdated(fm, board.cfg);
     });
   }
 
@@ -1588,6 +1605,7 @@ export default class BoardNotesPlugin extends Plugin {
       if (String(fm[cfg.statusField] ?? "") !== status) {
         fm[cfg.statusField] = status;
         if (cfg.autoArchive) fm[cfg.autoArchive.statusChangedField] = this.today();
+        this.touchUpdated(fm, cfg);
       }
     });
   }
@@ -1709,6 +1727,7 @@ export default class BoardNotesPlugin extends Plugin {
       if (String(c.fm[cfg.statusField] ?? "") === oldValue) {
         await this.app.fileManager.processFrontMatter(c.file, (fm) => {
           fm[cfg.statusField] = newValue;
+          this.touchUpdated(fm, cfg);
         });
         n++;
       }
@@ -1726,6 +1745,7 @@ export default class BoardNotesPlugin extends Plugin {
         if (String(v ?? "") === oldValue) {
           await this.app.fileManager.processFrontMatter(c.file, (fm) => {
             fm[field] = newValue;
+            this.touchUpdated(fm, cfg);
           });
           n++;
         }
@@ -1734,6 +1754,7 @@ export default class BoardNotesPlugin extends Plugin {
         if (arr.includes(oldValue)) {
           await this.app.fileManager.processFrontMatter(c.file, (fm) => {
             fm[field] = arr.map((x) => (x === oldValue ? newValue : x));
+            this.touchUpdated(fm, cfg);
           });
           n++;
         }
@@ -1797,6 +1818,7 @@ class BoardSettingsModal extends Modal {
   private folderInput!: HTMLInputElement;
   private templateInput!: HTMLInputElement;
   private viewSelect!: HTMLSelectElement;
+  private touchUpdatedInput!: HTMLInputElement;
   private cardRatingInput!: HTMLInputElement;
   private cardRecInput!: HTMLInputElement;
   private columnRows: EditableRow[] = [];
@@ -2036,6 +2058,15 @@ class BoardSettingsModal extends Modal {
     this.viewSelect.createEl("option", { value: "table", text: "Таблица" });
     this.viewSelect.value = this.cfg.view;
 
+    const touchUpdatedRow = contentEl.createEl("label", { cls: "bn-settings-checkbox" });
+    this.touchUpdatedInput = touchUpdatedRow.createEl("input", { type: "checkbox" }) as HTMLInputElement;
+    this.touchUpdatedInput.checked = this.cfg.touchUpdated;
+    touchUpdatedRow.appendText(" Обновлять поле updated при изменении карточки");
+    contentEl.createEl("p", {
+      cls: "bn-settings-hint",
+      text: "Работает для изменений через Board Notes: таблицу, карточку, статус и словарь. Обычное сохранение заметки это поле не меняет.",
+    });
+
     // Колонки
     contentEl.createEl("h4", { text: "Колонки" });
     this.columnRows = this.makeEditableList(contentEl, this.cfg.columns, () => {});
@@ -2259,6 +2290,7 @@ class BoardSettingsModal extends Modal {
         folder: newFolder || undefined,
         template: newTemplate || undefined,
         view: this.viewSelect.value === "table" ? "table" : "kanban",
+        touchUpdated: this.touchUpdatedInput.checked,
         columns: newColumns,
         meta: newMeta,
         vocab: newVocab,
@@ -2375,6 +2407,7 @@ class NewBoardModal extends Modal {
       single: [],
       meta: [],
       showTags: true,
+      touchUpdated: false,
       flat: false,
       view: "kanban",
       table: { columns: [], sort: [] },

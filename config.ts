@@ -75,6 +75,7 @@ export function parseBoardConfig(source: string): BoardConfig {
     meta: asStringList(raw.meta),
     coverField: raw.coverField ? String(raw.coverField) : undefined,
     showTags: raw.showTags !== false,
+    touchUpdated: raw.touchUpdated === true,
     flat: raw.flat === true,
     view: raw.view === "table" ? "table" : "kanban",
     table: { columns: tableColumns, sort: tableSort },
@@ -99,6 +100,7 @@ export function serializeBoardConfig(cfg: BoardConfig): string {
   if (cfg.statusField !== DEFAULT_STATUS_FIELD) obj.statusField = cfg.statusField;
   if (cfg.baseTaskField !== DEFAULT_BASE_TASK_FIELD) obj.baseTaskField = cfg.baseTaskField;
   if (!cfg.showTags) obj.showTags = false;
+  if (cfg.touchUpdated) obj.touchUpdated = true;
   if (cfg.flat) obj.flat = true;
   if (cfg.view === "table") obj.view = "table";
   if (cfg.coverField) obj.coverField = cfg.coverField;

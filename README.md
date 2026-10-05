@@ -26,7 +26,7 @@ Board Notes takes the opposite approach: every board is defined by a single ` ``
 - **Board settings** (⚙ button in the toolbar) — edit folder, template, columns, vocab values, and the card layout from a modal; renaming a column or a vocab value batch-updates every card that used the old value
 - **"Create new board" command** — a wizard (tag, folder, template, columns) that generates a ready-to-use ` ```board ` code block in a fresh note
 - **Centralized card layout** — define ` ```card ` fields/links/labels once in the board config (`card:`) instead of copy-pasting them into every template and note; supports multiple links at once, not just one
-- **Automatic dates** — fills empty `created` and `updated` fields with today's date once, without overwriting existing values (`YYYY-MM-DD`)
+- **Automatic dates** — fills empty `created` and `updated` fields with today's date once; `touchUpdated: true` also refreshes `updated` after Board Notes edits (`YYYY-MM-DD`)
 - **Auto-archive** (`autoArchive`) — moves cards from one status to another after N days, based on a "status changed" date that the plugin maintains itself
 - **Subtasks** — a card can point to a base task via a link field; the base task shows a `done/total` progress badge on the board and a list of child tasks in its ` ```card `, and a **+ subtask** button creates a child that inherits the parent's fields
 - **Copy buttons** — ⧉ next to card links and, for fields listed in `copyFields`, next to a value (e.g. a ticket ID)
@@ -102,6 +102,7 @@ All options are read from the YAML inside the ` ```board ` block.
 | `coverField` | string | — | Frontmatter field containing an Obsidian wikilink to an image to display above the title on each board card. |
 | `baseTaskField` | string | `BaseTask` | Frontmatter field holding a wikilink to a card's base (parent) task. See [Subtasks](#subtasks). |
 | `showTags` | boolean | `true` | Set to `false` to hide the automatic tag-filter row. Useful when notes carry incidental real Obsidian tags unrelated to the board (e.g. a literal `#include` in a code snippet gets indexed as a tag and shows up as noise). |
+| `touchUpdated` | boolean | `false` | When `true`, refreshes the card's `updated` field after a Board Notes edit. It does not react to ordinary note saves. |
 | `flat` | boolean | `false` | Skip Kanban columns entirely and render all matching cards as a single filterable grid. For reference indexes (FAQs, glossaries) that have topic tags but no workflow status — `statusField`/`columns` are ignored when this is set. |
 | `view` | `kanban` or `table` | `kanban` | Initial representation. The toolbar switcher changes the current view without changing card data. |
 | `table.columns` | list of `{field, label?}` | inferred | Table columns and their order. `__title` is a virtual note-title field (using `nameField`, then `Название`). Configure them in ⚙ or drag table headers. |

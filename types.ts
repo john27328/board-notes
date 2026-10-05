@@ -42,6 +42,8 @@ export interface BoardConfig {
   meta: string[];
   coverField?: string;
   showTags: boolean;
+  /** When enabled, board-driven card edits refresh the `updated` date. */
+  touchUpdated: boolean;
   flat: boolean;
   view: "kanban" | "table";
   table: TableConfig;
