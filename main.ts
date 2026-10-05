@@ -1133,7 +1133,22 @@ export default class BoardNotesPlugin extends Plugin {
     container: HTMLElement,
     sourcePath: string
   ) {
-    const cell = row.createEl("td", { cls: "bn-table-cell", text: this.tableValue(card, column, cfg) });
+    const value = this.tableValue(card, column, cfg);
+    const field = this.tableStorageField(column.field, cfg);
+    const cell = row.createEl("td", { cls: "bn-table-cell" });
+    cell.createSpan({ text: value });
+    if (value && cfg.cardCopyFields.includes(field)) {
+      const copyBtn = cell.createSpan({ cls: "bn-card-link-copy", text: "⧉" });
+      copyBtn.setAttr("aria-label", "Скопировать значение");
+      copyBtn.addEventListener("click", async (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        await navigator.clipboard.writeText(value);
+        const previous = copyBtn.getText();
+        copyBtn.setText("✓");
+        setTimeout(() => copyBtn.setText(previous), 1000);
+      });
+    }
     cell.setAttr("title", "Двойной клик — редактировать");
     let openTimer: number | null = null;
     cell.addEventListener("dblclick", (event) => {

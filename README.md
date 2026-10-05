@@ -105,7 +105,7 @@ All options are read from the YAML inside the ` ```board ` block.
 | `touchUpdated` | boolean | `false` | When `true`, refreshes the card's `updated` field after a Board Notes edit. It does not react to ordinary note saves. |
 | `flat` | boolean | `false` | Skip Kanban columns entirely and render all matching cards as a single filterable grid. For reference indexes (FAQs, glossaries) that have topic tags but no workflow status — `statusField`/`columns` are ignored when this is set. |
 | `view` | `kanban` or `table` | `kanban` | Initial representation. The toolbar switcher changes the current view without changing card data. |
-| `table.columns` | list of `{field, label?}` | inferred | Table columns and their order. `__title` is a virtual note-title field (using `nameField`, then `Название`). Configure them in ⚙ or drag table headers. |
+| `table.columns` | list of `{field, label?}` | inferred | Table columns and their order. `__title` is a virtual note-title field (using `nameField`, then `Название`). Fields from `card.copyFields` also get a ⧉ button in the table. Configure them in ⚙ or drag table headers. |
 | `table.sort` | list of `{field, direction}` | `[]` | Persistent card sort rules in priority order, applied to both the board and table. `direction` is `asc` or `desc`; `__modified` is the note's modification date. Configure them in ⚙; the first rule has the highest priority. |
 | `autoArchive` | object | — | Automatically moves cards from `source` to `target` after `afterDays` days since their last status change. `statusChangedField` defaults to `Статус изменён`. The check runs when Obsidian starts and hourly afterward. |
 | `card` | object | `{}` | Centralized settings for the ` ```card ` block (see below) — `fields`, `links`, `labels`, `ratingField`, `recField`, `copyFields`. Applied to any note tagged for this board whose own ` ```card ` block is empty. |
@@ -122,7 +122,7 @@ The same option is available as **"Update the updated field when a card changes"
 
 ### Table
 
-Open it with the **Table** button in the toolbar or set `view: table`. The shared search and tag/facet filters apply to both representations. Each table header has a text filter; clicking its label sorts ascending or descending. Double-click a cell to edit frontmatter: status and `vocab` fields show their allowed values, while other fields use text input. Double-clicking `__title` edits `nameField` (or `Название`); a single click opens the note.
+Open it with the **Table** button in the toolbar or set `view: table`. The shared search and tag/facet filters apply to both representations. Each table header has a text filter; clicking its label sorts ascending or descending. Double-click a cell to edit frontmatter: status and `vocab` fields show their allowed values, while other fields use text input. Double-clicking `__title` edits `nameField` (or `Название`); a single click opens the note. Fields in `card.copyFields` show a ⧉ button next to their value; it copies without opening the editor.
 
 ```yaml
 view: table
@@ -173,7 +173,7 @@ labels:
 | `links` | `[]` | A list of links — each renders as its own row with a clickable link (if the value looks like a URL) and its own edit pencil. Add more than one, e.g. a Pyrus link plus a separate merge-request link. |
 | `linkField` / `linkLabel` | — | Old-style way to set a **single** link — equivalent to `links: [{field: linkField, label: linkLabel}]`. Still works; don't mix `links` and `linkField` in the same block. |
 | `recField` | — | The field to render in an italic, accent-bordered block. |
-| `copyFields` | `[]` (or the board's `card.copyFields`) | Fields (from `labels`) that get a ⧉ button to copy the value to the clipboard — handy for IDs. Link rows always have their own ⧉ button for URL values. |
+| `copyFields` | `[]` (or the board's `card.copyFields`) | Fields (from `labels`) that get a ⧉ button to copy the value to the clipboard — handy for IDs, logins, or passwords. The same fields also get a ⧉ button in the table. Link rows always have their own ⧉ button for URL values. |
 | `labels` | `{}` | Map of field name → display label for any other field in `fields`. Rendered as a small `Label: value` row instead of a full paragraph — use this for short metadata (IDs, counts) rather than prose. A value written as an Obsidian wikilink, such as `[[Базовая задача]]`, is rendered as a clickable internal link with a separate edit button. Fields in `fields` without a label and not matching one of the roles above are rendered as a plain paragraph (intended for longer text like a description). |
 | `showStatus` | `true` | Set to `false` to hide the status chip row (see below). |
 
