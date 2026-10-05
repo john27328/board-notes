@@ -110,6 +110,16 @@ All options are read from the YAML inside the ` ```board ` block.
 | `autoArchive` | object | — | Automatically moves cards from `source` to `target` after `afterDays` days since their last status change. `statusChangedField` defaults to `Статус изменён`. The check runs when Obsidian starts and hourly afterward. |
 | `card` | object | `{}` | Centralized settings for the ` ```card ` block (see below) — `fields`, `links`, `labels`, `ratingField`, `recField`, `copyFields`. Applied to any note tagged for this board whose own ` ```card ` block is empty. |
 
+### Card update date
+
+By default, Board Notes does not change `updated`. This is the safe mode for boards where that field is maintained manually or by another plugin. To enable automatic updates, add this to the `board` block:
+
+```yaml
+touchUpdated: true
+```
+
+The same option is available as **"Update the updated field when a card changes"** in the board settings (⚙). Board Notes writes a `YYYY-MM-DD` date when a card changes through the plugin: a status move, an inline card or table edit, a controlled-vocabulary edit, or a batch rename of a status or vocabulary value. Ordinary Obsidian saves, manual Markdown edits, and changes made outside Board Notes do not affect `updated`.
+
 ### Table
 
 Open it with the **Table** button in the toolbar or set `view: table`. The shared search and tag/facet filters apply to both representations. Each table header has a text filter; clicking its label sorts ascending or descending. Double-click a cell to edit frontmatter: status and `vocab` fields show their allowed values, while other fields use text input. Double-clicking `__title` edits `nameField` (or `Название`); a single click opens the note.
@@ -222,6 +232,7 @@ Every non-`flat` board's toolbar has a ⚙ button that opens a settings modal ri
   - the × button deletes a column — any cards that were in it move to the first remaining column instead of disappearing from the board;
   - "+ add" appends a blank column at the end.
 - **Tags / vocab** — same idea for each `vocab` field: renaming a value batch-updates every card that had it. A field at the bottom lets you add a brand-new vocab field.
+- **Update date** — the "Update the updated field when a card changes" checkbox enables `touchUpdated: true` for this board. It does not track ordinary note saves.
 - **Card** — editable lists for the centralized ` ```card ` config (see above): "Поля" (a plain list), "Ссылки" and "Подписи" (field → label pairs), "Копируемые поля", plus fields for the special rating and recommendation display. These aren't tied to individual cards, so renaming here doesn't touch any note — it just changes what an empty ` ```card ` block displays.
 - "Save" rewrites the ` ```board ` code block itself (via `stringifyYaml`) and applies all the renames to cards in one go; the live board re-parses its config and redraws immediately, no need to reopen the note.
 
