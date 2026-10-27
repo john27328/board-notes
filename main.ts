@@ -2,6 +2,7 @@ import {
   App,
   MarkdownRenderChild,
   MarkdownPostProcessorContext,
+  FuzzySuggestModal,
   Modal,
   parseYaml,
   Plugin,
@@ -499,7 +500,12 @@ export default class BoardNotesPlugin extends Plugin {
               setTimeout(() => copyBtn.setText(prev), 1000);
             });
           }
-          if (isInternalLink) {
+          if (board && field === board.cfg.baseTaskField) {
+            const target = isInternalLink
+              ? meta.createSpan({ cls: "bn-card-link-edit", text: "✎" })
+              : valueEl;
+            this.makeBaseTaskPicker(target, file, board.cfg, board.boardPath);
+          } else if (isInternalLink) {
             const editBtn = meta.createSpan({ cls: "bn-card-link-edit", text: "✎" });
             this.makeFieldEditable(editBtn, file, field, String(value), false, draw, board?.cfg);
           } else {
@@ -509,6 +515,14 @@ export default class BoardNotesPlugin extends Plugin {
         }
 
         const el = container.createDiv({ cls: "bn-card-desc" });
+        if (board && field === board.cfg.baseTaskField) {
+          const isInternalLink = hasValue && this.renderInternalLink(el, file, value);
+          if (!isInternalLink) el.setText(hasValue ? String(value) : `+ ${field.toLowerCase()}`);
+          if (!hasValue) el.addClass("bn-card-placeholder");
+          const target = isInternalLink ? el.createSpan({ cls: "bn-card-link-edit", text: "✎" }) : el;
+          this.makeBaseTaskPicker(target, file, board.cfg, board.boardPath);
+          return;
+        }
         el.setText(hasValue ? String(value) : `+ ${field.toLowerCase()}`);
         if (!hasValue) el.addClass("bn-card-placeholder");
         this.makeFieldEditable(el, file, field, hasValue ? String(value) : "", true, draw, board?.cfg);
@@ -597,6 +611,58 @@ export default class BoardNotesPlugin extends Plugin {
       void this.app.workspace.openLinkText(target, sourceFile.path);
     });
     return true;
+  }
+
+  /** Opens a searchable list of the board's cards to pick the base task from, instead of typing a wikilink by hand. */
+  makeBaseTaskPicker(el: HTMLElement, file: TFile, cfg: BoardConfig, boardPath: string) {
+    el.addClass("bn-card-editable");
+    el.setAttr("tabindex", "0");
+
+    const open = (e: Event) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const allCards = this.getCards(cfg, boardPath);
+
+      // Exclude the card itself and all its descendants so the hierarchy can't loop.
+      const blocked = new Set<string>([file.path]);
+      const queue = [file.path];
+      while (queue.length) {
+        const parent = queue.pop()!;
+        this.childCardsOf(allCards, parent, cfg.baseTaskField).forEach((ch) => {
+          if (blocked.has(ch.file.path)) return;
+          blocked.add(ch.file.path);
+          queue.push(ch.file.path);
+        });
+      }
+
+      const fm = this.app.metadataCache.getFileCache(file)?.frontmatter ?? {};
+      const currentPaths = this.resolveLinkTargets(file.path, fm[cfg.baseTaskField]);
+      const doneSet = this.doneStatusesOf(cfg);
+      const statusOf = (c: Card) => String(c.fm[cfg.statusField] ?? "");
+      const candidates = allCards
+        .filter((c) => !blocked.has(c.file.path))
+        .sort((a, b) => {
+          const aDone = doneSet.has(statusOf(a)) ? 1 : 0;
+          const bDone = doneSet.has(statusOf(b)) ? 1 : 0;
+          return aDone - bDone || b.file.stat.mtime - a.file.stat.mtime;
+        });
+
+      new BaseTaskSuggestModal(this.app, candidates, cfg, currentPaths.length > 0, async (picked) => {
+        const v = picked
+          ? `[[${this.app.metadataCache.fileToLinktext(picked.file, file.path, true)}]]`
+          : "";
+        await this.app.fileManager.processFrontMatter(file, (f) => {
+          if (String(f[cfg.baseTaskField] ?? "") === v) return;
+          f[cfg.baseTaskField] = v;
+          this.touchUpdated(f, cfg);
+        });
+      }).open();
+    };
+
+    el.addEventListener("click", open);
+    el.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" || e.key === " ") open(e);
+    });
   }
 
   makeFieldEditable(
@@ -1776,6 +1842,42 @@ export default class BoardNotesPlugin extends Plugin {
       }
     }
     return n;
+  }
+}
+
+/** `null` item = "clear the base task". */
+class BaseTaskSuggestModal extends FuzzySuggestModal<Card | null> {
+  constructor(
+    app: App,
+    private cards: Card[],
+    private cfg: BoardConfig,
+    private allowClear: boolean,
+    private onPick: (card: Card | null) => void | Promise<void>
+  ) {
+    super(app);
+    this.setPlaceholder("Базовая задача: начните вводить название…");
+  }
+
+  getItems(): (Card | null)[] {
+    return this.allowClear ? [null, ...this.cards] : this.cards;
+  }
+
+  getItemText(card: Card | null): string {
+    if (!card) return "— убрать базовую задачу";
+    const id = this.cfg.meta.map((f) => card.fm[f]).filter((v) => v != null && v !== "");
+    return [card.file.basename, ...id].join(" ");
+  }
+
+  renderSuggestion(match: { item: Card | null }, el: HTMLElement) {
+    super.renderSuggestion(match as any, el);
+    const card = match.item;
+    if (!card) return;
+    const status = String(card.fm[this.cfg.statusField] ?? "");
+    if (status) el.createSpan({ cls: "bn-chip bn-base-task-suggest-status", text: status });
+  }
+
+  onChooseItem(card: Card | null) {
+    void this.onPick(card);
   }
 }
 

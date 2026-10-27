@@ -799,3 +799,8 @@ textarea.bn-card-edit-input {
   justify-content: flex-end;
   margin-top: 20px;
 }
+
+.bn-base-task-suggest-status {
+  margin-left: 8px;
+  font-size: 0.8em;
+}
