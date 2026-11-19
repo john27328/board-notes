@@ -31,7 +31,7 @@ For `test:cards`, optional `BOARD_NOTES_QUICKADD_SCRIPT` points to a QuickAdd us
 | File | Purpose |
 |---|---|
 | `main.ts` | Plugin entry, code-block processors, board/table/card rendering, modals |
-| `card-groups.ts` | Column-local ancestor groups and cycle-safe iterative hierarchy construction |
+| `card-groups.ts` | Ancestor groups shared by Kanban and tree tables, with cycle-safe iterative construction |
 | `config.ts` | Parsing and serializing the ` ```board ` YAML |
 | `types.ts` | Shared interfaces |
 | `styles.css` | Styles (`bn-` prefix) |

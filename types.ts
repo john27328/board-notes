@@ -80,6 +80,7 @@ export interface BoardState {
   view: "kanban" | "table";
   tableFilters: Map<string, string>;
   tableSort: TableSort[];
+  collapsedTableGroups?: Set<string>;
   onSettings: (() => void) | null;
 }
 

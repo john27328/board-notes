@@ -7,7 +7,7 @@ export interface CardGroupNode {
   children: CardGroupNode[];
 }
 
-/** Build column-local groups, keeping ancestor labels even across columns/filters. */
+/** Build view-local groups, keeping ancestor labels even across columns/filters. */
 export function groupCards(
   cards: Card[],
   allCards: Card[],

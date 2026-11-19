@@ -130,6 +130,8 @@ The same option is available as **"Update the updated field when a card changes"
 
 ### Table
 
+Cards linked through `baseTaskField` form an expandable tree. Parents precede their children; sort rules apply within each branch, and nesting has no fixed depth limit. Use the arrows beside titles to collapse or expand branches; this view state survives redraws without changing notes. Filtered-out ancestors appear as muted, read-only title rows to preserve the matching card's context. If the table has no title column, the tree adds one to the view. Ordinary rows retain inline editing, and Escape cancels an edit without saving.
+
 Open it with the **Table** button in the toolbar or set `view: table`. The shared search and tag/facet filters apply to both representations. Each table header has a text filter; clicking its label sorts ascending or descending. Double-click a cell to edit frontmatter: status and `vocab` fields show their allowed values, while other fields use text input. Double-clicking `__title` edits `nameField` (or `Название`); a single click opens the note. Fields in `card.copyFields` show a ⧉ button next to their value; it copies without opening the editor.
 
 ```yaml

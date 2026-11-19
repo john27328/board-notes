@@ -1115,11 +1115,13 @@ export default class BoardNotesPlugin extends Plugin {
     sourcePath: string,
     allCards: Card[] = cards
   ) {
-    const columns = this.tableColumnsFor(cfg);
+    let columns = this.tableColumnsFor(cfg);
+    const filterColumns = columns.some((column) => column.field === "__title")
+      ? columns : [{ field: "__title" }, ...columns];
     const filtered = this.sortCards(
       cards.filter((card) =>
         (cfg.flat || !state.hiddenColumns.has(String(card.fm[cfg.statusField] ?? ""))) &&
-        columns.every((column) => {
+        filterColumns.every((column) => {
           const filter = state.tableFilters.get(column.field)?.trim().toLowerCase();
           return !filter || this.tableValue(card, column, cfg).toLowerCase().includes(filter);
         })
@@ -1129,8 +1131,21 @@ export default class BoardNotesPlugin extends Plugin {
       allCards
     );
 
+    const groups = groupCards(
+      filtered,
+      allCards,
+      (card) => this.resolveLinkTargets(card.file.path, card.fm[cfg.baseTaskField]),
+      (left, right) => this.compareCards(left, right, state.tableSort, cfg)
+    );
+    const hasHierarchy = groups.some((node) => node.group);
+    if (hasHierarchy && !columns.some((column) => column.field === "__title")) {
+      columns = [{ field: "__title", label: cfg.nameField ?? "Название" }, ...columns];
+    }
+    const collapsed = state.collapsedTableGroups ??= new Set<string>();
+
     const wrap = container.createDiv({ cls: "bn-table-wrap" });
     const table = wrap.createEl("table", { cls: "bn-table" });
+    if (hasHierarchy) table.setAttr("role", "treegrid");
     const head = table.createEl("thead").createEl("tr");
     columns.forEach((column) => {
       const cell = head.createEl("th", { cls: "bn-table-header" });
@@ -1195,10 +1210,42 @@ export default class BoardNotesPlugin extends Plugin {
     });
 
     const body = table.createEl("tbody");
-    filtered.forEach((card) => {
-      const row = body.createEl("tr");
-      columns.forEach((column) => this.renderTableCell(row, card, column, cfg, state, container, sourcePath));
-    });
+    const pending = groups.slice().reverse().map((node) => ({ node, depth: 0 }));
+    while (pending.length) {
+      const { node, depth } = pending.pop()!;
+      const hasChildren = node.children.length > 0;
+      const isCollapsed = collapsed.has(node.card.file.path);
+      const row = body.createEl("tr", {
+        cls: !node.visible ? "bn-table-context" : node.group ? "bn-table-base" : "",
+      });
+      row.dataset.path = node.card.file.path;
+      row.dataset.depth = String(depth);
+      if (hasHierarchy) {
+        row.setAttr("aria-level", String(depth + 1));
+        if (hasChildren) row.setAttr("aria-expanded", String(!isCollapsed));
+      }
+      columns.forEach((column) => {
+        if (!node.visible && column.field !== "__title") {
+          row.createEl("td", { cls: "bn-table-cell" });
+          return;
+        }
+        this.renderTableCell(row, node.card, column, cfg, state, container, sourcePath,
+          hasHierarchy && column.field === "__title" ? {
+            depth, hasChildren, collapsed: isCollapsed, context: !node.visible,
+            toggle: () => {
+              if (collapsed.has(node.card.file.path)) collapsed.delete(node.card.file.path);
+              else collapsed.add(node.card.file.path);
+              this.draw(container, cfg, state, sourcePath);
+            },
+          } : undefined
+        );
+      });
+      if (!isCollapsed) {
+        for (let i = node.children.length - 1; i >= 0; i--) {
+          pending.push({ node: node.children[i], depth: depth + 1 });
+        }
+      }
+    }
 
     const footer = container.createDiv({ cls: "bn-table-footer" });
     footer.createSpan({ cls: "bn-search-count", text: `${filtered.length} / ${cards.length}` });
@@ -1214,14 +1261,31 @@ export default class BoardNotesPlugin extends Plugin {
     cfg: BoardConfig,
     state: BoardState,
     container: HTMLElement,
-    sourcePath: string
+    sourcePath: string,
+    tree?: { depth: number; hasChildren: boolean; collapsed: boolean; context: boolean; toggle: () => void }
   ) {
     const value = this.tableValue(card, column, cfg);
     const field = this.tableStorageField(column.field, cfg);
     const cell = row.createEl("td", { cls: "bn-table-cell" });
-    cell.createSpan({ text: value });
-    if (value && cfg.cardCopyFields.includes(field)) {
-      const copyBtn = cell.createSpan({ cls: "bn-card-link-copy", text: "⧉" });
+    const content = tree ? cell.createDiv({ cls: "bn-table-tree-cell" }) : cell;
+    if (tree) {
+      content.style.setProperty("--bn-tree-depth", String(tree.depth));
+      if (tree.hasChildren) {
+        const button = content.createEl("button", {
+          cls: "bn-table-tree-toggle", type: "button", text: tree.collapsed ? "▸" : "▾",
+          attr: { "aria-label": tree.collapsed ? "Развернуть ветку" : "Свернуть ветку", "aria-expanded": String(!tree.collapsed) },
+        });
+        button.addEventListener("click", (event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          tree.toggle();
+        });
+        button.addEventListener("dblclick", (event) => { event.preventDefault(); event.stopPropagation(); });
+      } else content.createSpan({ cls: "bn-table-tree-spacer", attr: { "aria-hidden": "true" } });
+    }
+    content.createSpan({ cls: tree ? "bn-table-tree-label" : "", text: value });
+    if (value && !tree?.context && cfg.cardCopyFields.includes(field)) {
+      const copyBtn = content.createSpan({ cls: "bn-card-link-copy", text: "⧉" });
       copyBtn.setAttr("aria-label", "Скопировать значение");
       copyBtn.addEventListener("click", async (event) => {
         event.preventDefault();
@@ -1232,12 +1296,13 @@ export default class BoardNotesPlugin extends Plugin {
         setTimeout(() => copyBtn.setText(previous), 1000);
       });
     }
-    cell.setAttr("title", "Двойной клик — редактировать");
+    cell.setAttr("title", tree?.context ? "Базовая карточка вне фильтра; нажмите, чтобы открыть" : "Двойной клик — редактировать");
     let openTimer: number | null = null;
     cell.addEventListener("dblclick", (event) => {
       event.preventDefault();
       event.stopPropagation();
       if (openTimer != null) window.clearTimeout(openTimer);
+      if (tree?.context) return;
       this.editTableCell(cell, card, column, cfg, state, container, sourcePath);
     });
     if (column.field === "__title") {
@@ -1311,7 +1376,11 @@ export default class BoardNotesPlugin extends Plugin {
     input.addEventListener("blur", commit);
     input.addEventListener("keydown", (event) => {
       if (event.key === "Enter") commit();
-      if (event.key === "Escape") this.draw(container, cfg, state, sourcePath);
+      if (event.key === "Escape") {
+        event.preventDefault();
+        saved = true;
+        this.draw(container, cfg, state, sourcePath);
+      }
     });
     input.focus();
     input.select();
