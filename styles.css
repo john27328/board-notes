@@ -184,16 +184,17 @@
   isolation: isolate;
 }
 
-.bn-table {
+.board-notes .bn-table {
   width: 100%;
+  margin: 0;
   border-collapse: separate;
   border-spacing: 0;
   background-color: var(--background-primary);
   font-size: 0.88em;
 }
 
-.bn-table th,
-.bn-table td {
+.board-notes .bn-table th,
+.board-notes .bn-table td {
   min-width: 130px;
   max-width: 360px;
   padding: 7px 10px;
@@ -202,7 +203,7 @@
   text-align: left;
 }
 
-.bn-table th {
+.board-notes .bn-table > thead > tr > th {
   position: sticky;
   top: 0;
   z-index: 2;
@@ -212,8 +213,13 @@
   cursor: grab;
 }
 
-.bn-table-header:hover {
-  background: var(--background-modifier-hover);
+.board-notes .bn-table > thead > tr > th:hover {
+  /* Keep an opaque base under the theme's translucent hover colour. */
+  background-color: var(--background-primary);
+  background-image: linear-gradient(
+    var(--background-modifier-hover),
+    var(--background-modifier-hover)
+  );
 }
 
 .bn-table-sort {

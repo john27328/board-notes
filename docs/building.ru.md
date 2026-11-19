@@ -19,6 +19,9 @@ npm install
 | `npm run typecheck` | `tsc --noEmit` |
 | `npm run check` | Проверка типов + продакшн-сборка |
 | `npm run deploy` | `check`, затем копирование `main.js`, `manifest.json`, `styles.css` в vault |
+| `npm run test:table` | Проверка в Chromium: непрозрачность закреплённых заголовков таблицы, фильтры и прокрутка |
+
+Перед браузерной проверкой выполнить `npx playwright install chromium` (в Linux также может понадобиться `npx playwright install-deps chromium`). Тест использует вымышленные данные и не читает заметки хранилища. Для существующего Chromium задать `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH`. Необязательный `BOARD_NOTES_TEST_THEME` загружает CSS темы, а `BOARD_NOTES_TEST_CSS` подставляет стили плагина, например для воспроизведения ошибки на старой версии. Проверяются светлый и тёмный режимы, контейнеры чтения и Live Preview; сам Obsidian тест не запускает.
 
 ## Структура
 

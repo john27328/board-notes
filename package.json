@@ -8,13 +8,15 @@
     "build": "node esbuild.config.mjs production",
     "typecheck": "tsc --noEmit",
     "check": "npm run typecheck && npm run build",
-    "deploy": "npm run check && node scripts/deploy.mjs"
+    "deploy": "npm run check && node scripts/deploy.mjs",
+    "test:table": "node scripts/test-table-layout.mjs"
   },
   "devDependencies": {
     "@types/node": "^20.11.5",
     "builtin-modules": "^3.3.0",
     "esbuild": "^0.28.1",
     "obsidian": "latest",
+    "playwright": "1.65.1",
     "tslib": "^2.8.1",
     "typescript": "^5.3.3"
   }
