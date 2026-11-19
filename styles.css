@@ -752,9 +752,29 @@ textarea.bn-card-edit-input {
 }
 
 .bn-card-children-status {
-  cursor: default;
+  cursor: pointer;
   white-space: nowrap;
   flex-shrink: 0;
+}
+
+button.bn-card-children-status {
+  height: auto;
+  min-height: 0;
+  margin: 0;
+  box-shadow: none;
+  background: transparent;
+  font-family: inherit;
+  font-weight: inherit;
+  line-height: 1.35;
+}
+
+button.bn-card-children-status:focus-visible {
+  outline: 1px solid var(--interactive-accent);
+  outline-offset: 2px;
+}
+
+button.bn-card-children-status:disabled {
+  cursor: default;
 }
 
 .bn-edit-panel-inline .bn-edit-chips .bn-chip {

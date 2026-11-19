@@ -24,7 +24,20 @@ const bundle = await build({
           constructor(path) { this.path = path; this.basename = path.split('/').pop().replace(/\\.md$/, ''); this.extension = 'md'; this.stat = {mtime: 0}; }
         }
         export class Plugin { constructor(app) { this.app = app; } }
-        export class MarkdownRenderChild {}
+        export class MarkdownRenderChild { registerEvent() {} }
+        export class Menu {
+          constructor() { this.items = []; window.lastMenu = this; }
+          addItem(callback) {
+            const item = {
+              setTitle(value) { this.title = value; return this; },
+              setChecked(value) { this.checked = value; return this; },
+              onClick(callback) { this.choose = callback; return this; },
+            };
+            callback(item); this.items.push(item); return this;
+          }
+          showAtPosition(position) { this.position = position; this.shown = true; return this; }
+          hide() { this.shown = false; }
+        }
         export class Modal {
           constructor(app) { this.app = app; this.contentEl = document.createElement('section'); }
           open() { document.body.append(this.contentEl); window.lastModal = this; this.onOpen?.(); }
@@ -90,7 +103,7 @@ try {
         cachedRead: async (file) => contents.get(file.path),
         create: async (path, content) => { if (files.has(path)) throw new Error("exists"); return put(path, content); },
       },
-      metadataCache: { getFileCache: (file) => ({
+      metadataCache: { on: () => ({}), getFileCache: (file) => ({
         frontmatter: fm(file),
         tags: [...contents.get(file.path).matchAll(/^#([\w-]+)/gm)].map((match) => ({tag: `#${match[1]}`})),
         sections: contents.get(file.path).includes("```") ? [{type: "code"}] : [],
@@ -299,6 +312,38 @@ try {
     treeState.tableFilters.clear();
     redrawTree();
     plugin.draw = previousDraw;
+    const childStatusCfgText = 'tag: "#status-demo"\nstatusField: статус\ncolumns: [Рекомендовано, Читаю, Прочитано, Архив]\ndoneStatuses: [Прочитано]\ntouchUpdated: true\nautoArchive:\n  source: Прочитано\n  target: Архив\n  afterDays: 14\n  statusChangedField: Изменён\ncard:\n  fields: [Описание]';
+    put("Child status board.md", `\`\`\`board\n${childStatusCfgText}\n\`\`\`\n`);
+    const statusBase = put("Status parent.md", yaml({tags: ["status-demo"], статус: "Читаю", updated: "2020-01-01", Описание: "Серия", Оценка: 9}));
+    const statusChild = put("Status child.md", yaml({tags: ["status-demo"], статус: "Рекомендовано", BaseTask: "[[Status parent]]", updated: "2020-01-01", Оценка: 8}));
+    const emptyStatusChild = put("Status empty.md", yaml({tags: ["status-demo"], BaseTask: "[[Status parent]]", updated: "2020-01-01", Оценка: 7}));
+    const parentContent = contents.get(statusBase.path), otherChildContent = contents.get(emptyStatusChild.path);
+    const statusHost = document.body.createDiv();
+    plugin.renderCard("{}", statusHost, {sourcePath: statusBase.path, addChild() {}});
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const childRow = (name) => [...statusHost.querySelectorAll(".bn-card-children-item")].find((row) => row.querySelector(".bn-card-children-link").textContent === name);
+    check(statusHost.querySelector(".bn-card-children-count").textContent === "0/2", "Parent must initially show both unfinished children");
+    const statusOpenedBefore = opened.length;
+    childRow("Status child").querySelector("button.bn-card-children-status").click();
+    check(window.lastMenu.shown && window.lastMenu.items.map((item) => item.title).join() === "Рекомендовано,Читаю,Прочитано,Архив", "Clicking a child status must offer exactly the board's statuses");
+    check(window.lastMenu.items.find((item) => item.checked).title === "Рекомендовано", "Status menu must mark the current value");
+    const childBeforeCancel = contents.get(statusChild.path);
+    window.lastMenu.hide();
+    check(contents.get(statusChild.path) === childBeforeCancel && opened.length === statusOpenedBefore, "Opening or cancelling the status menu must not write or open notes");
+    childRow("Status child").querySelector("button.bn-card-children-status").click();
+    await window.lastMenu.items.find((item) => item.title === "Рекомендовано").choose();
+    check(contents.get(statusChild.path) === childBeforeCancel, "Choosing the existing status must do nothing");
+    childRow("Status child").querySelector("button.bn-card-children-status").click();
+    await window.lastMenu.items.find((item) => item.title === "Прочитано").choose();
+    check(fm(statusChild).статус === "Прочитано" && String(fm(statusChild).Изменён).startsWith("2026-11-19") && String(fm(statusChild).updated).startsWith("2026-11-19"), "Changing a child status must use the configured field and maintain update/archive dates");
+    check(fm(statusChild).BaseTask === "[[Status parent]]" && fm(statusChild).Оценка === 8 && contents.get(statusBase.path) === parentContent && contents.get(emptyStatusChild.path) === otherChildContent, "Status changes must preserve the hierarchy, rating, parent and sibling");
+    check(statusHost.querySelector(".bn-card-children-count").textContent === "1/2" && childRow("Status child").classList.contains("done"), "Choosing a completed status must refresh parent progress and the child's done styling");
+    check(childRow("Status empty").querySelector("button.bn-card-children-status").textContent === "+ статус", "A child without a status must still offer the picker");
+    childRow("Status empty").querySelector("button.bn-card-children-status").click();
+    await window.lastMenu.items.find((item) => item.title === "Читаю").choose();
+    check(fm(emptyStatusChild).статус === "Читаю" && statusHost.querySelector(".bn-card-children-count").textContent === "1/2", "The picker must initialize an empty status without changing completed progress");
+    check(opened.length === statusOpenedBefore, "Status selections must not navigate away from the parent");
+    window.childStatusPreview = statusHost;
     window.tableTreePreview = treeHost;
     window.groupPreview = groupHost;
     window.actionFixture = {app, plugin, files, contents};
@@ -359,8 +404,16 @@ try {
       document.body.style.cssText = 'margin:24px;font:14px Arial;--background-primary:#242424;--background-secondary:#1e1e1e;--background-modifier-border:#555;--text-muted:#aaa;--text-normal:#eee;--background-modifier-hover:#303030;background:#242424;color:#eee';
     });
     await page.screenshot({path: `${process.env.BOARD_NOTES_GROUP_SCREENSHOT_DIR}/tree-dark.png`});
+    await page.evaluate(() => {
+      document.body.replaceChildren(window.childStatusPreview);
+    });
+    await page.screenshot({path: `${process.env.BOARD_NOTES_GROUP_SCREENSHOT_DIR}/child-status-dark.png`});
+    await page.evaluate(() => {
+      document.body.style.cssText = 'margin:24px;font:14px Arial;--background-primary:#fafafa;--background-secondary:#f2f2f2;--background-modifier-border:#ccc;--text-muted:#666;--text-normal:#222;--interactive-accent:#5688bb;background:#fafafa;color:#222';
+    });
+    await page.screenshot({path: `${process.env.BOARD_NOTES_GROUP_SCREENSHOT_DIR}/child-status-light.png`});
   }
-  console.log("Card actions passed: naming, subtask links, nested column groups, tree tables, branch collapse, filter context, nested editing, drag-and-drop, cycle recovery, unbounded hierarchy construction, parent-first sorting, completed statuses, QuickAdd API and archive scope.");
+  console.log("Card actions passed: child status picker and progress, custom status fields/dates, naming, subtask links, nested groups and tree tables, filters, editing, drag-and-drop, cycle recovery, unbounded hierarchy, QuickAdd API and archive scope.");
 } finally {
   await browser.close();
 }

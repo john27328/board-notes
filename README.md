@@ -225,6 +225,8 @@ Inside Kanban columns, cards are grouped by their base task with a very thin fra
 - **Card** (` ```card `) — a "child tasks" section lists the children with their statuses and a `done/total` counter; a **+ subtask** button in the header creates a new card from the board's template, sets its base-task link, copies the parent's other frontmatter fields (except status, the base-task field, `created`/`updated` and the auto-archive date) and opens it in a new tab.
 - **What counts as done** — with `autoArchive`, the `source` and `target` statuses; otherwise `doneStatuses` if set, or the last entry of `columns`.
 
+Click a child's status in the card's child-task list to choose from the board's statuses. The current status is checked; choosing another saves the child and refreshes the progress counter. Children without a status show a **+ статус** button.
+
 ### `tags` block
 
 ````markdown

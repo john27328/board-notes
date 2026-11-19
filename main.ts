@@ -8,6 +8,7 @@ import {
   Plugin,
   TFile,
   Notice,
+  Menu,
 } from "obsidian";
 import {
   DEFAULT_BASE_TASK_FIELD,
@@ -545,6 +546,7 @@ export default class BoardNotesPlugin extends Plugin {
           header.createSpan({ cls: "bn-card-children-count", text: `${done}/${children.length}` });
 
           const list = section.createDiv({ cls: "bn-card-children-list" });
+          const statuses = Array.from(new Set(this.statusColumnsFor(board.cfg, board.boardPath)));
           this.sortCards(children, board.cfg.table.sort, board.cfg, allCards).forEach((child) => {
               const status = String(child.fm[board!.cfg.statusField] ?? "");
               const row = list.createDiv({
@@ -560,12 +562,36 @@ export default class BoardNotesPlugin extends Plugin {
                 e.stopPropagation();
                 void this.app.workspace.getLeaf(false).openFile(child.file);
               });
-              if (status) {
-                row.createSpan({
-                  cls: "bn-chip bn-card-children-status" + (doneSet.has(status) ? " active" : ""),
-                  text: status,
-                });
-              }
+              const statusButton = row.createEl("button", {
+                cls: "bn-chip bn-card-children-status" + (doneSet.has(status) ? " active" : ""),
+                type: "button",
+                text: status || "+ статус",
+                attr: { "aria-label": "Изменить статус подзадачи", "aria-haspopup": "menu" },
+              });
+              statusButton.disabled = statuses.length === 0;
+              statusButton.addEventListener("click", (event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                const cfg = board!.cfg;
+                const current = String(this.app.metadataCache.getFileCache(child.file)?.frontmatter?.[cfg.statusField] ?? "");
+                const menu = new Menu();
+                statuses.forEach((next) => menu.addItem((item) => item
+                  .setTitle(next)
+                  .setChecked(next === current)
+                  .onClick(async () => {
+                    if (String(this.app.metadataCache.getFileCache(child.file)?.frontmatter?.[cfg.statusField] ?? "") === next) return;
+                    try {
+                      await this.setCardStatus(child.file, cfg, next);
+                      draw();
+                    } catch (error) {
+                      console.error("board-notes: child status update failed", error);
+                      new Notice("board-notes: не удалось изменить статус подзадачи");
+                    }
+                  })
+                ));
+                const rect = statusButton.getBoundingClientRect();
+                menu.showAtPosition({ x: rect.left, y: rect.bottom }, statusButton.ownerDocument);
+              });
             });
         }
       }
