@@ -26,6 +26,7 @@ import type {
   TableSort,
 } from "./types";
 import { cardBasename, creationTimestamp } from "./card-naming";
+import { groupCards, type CardGroupNode } from "./card-groups";
 const EMPTY_FACET_VALUE = " __bn_empty__";
 
 export default class BoardNotesPlugin extends Plugin {
@@ -1656,9 +1657,43 @@ export default class BoardNotesPlugin extends Plugin {
 
     const list = colEl.createDiv({ cls: "bn-list" });
 
-    colCards.forEach((c) =>
-      this.renderCardEl(list, cfg, state, c, allCards, container, sourcePath, true)
+    const groups = groupCards(
+      colCards,
+      allCards,
+      (card) => this.resolveLinkTargets(card.file.path, card.fm[cfg.baseTaskField]),
+      (left, right) => this.compareCards(left, right, state.tableSort, cfg)
     );
+    const pending: { node: CardGroupNode; host: HTMLElement }[] =
+      groups.slice().reverse().map((node) => ({ node, host: list }));
+    while (pending.length) {
+      const { node, host } = pending.pop()!;
+      let body = host;
+      if (node.group) {
+        const group = host.createDiv({ cls: "bn-card-group" });
+        group.dataset.basePath = node.card.file.path;
+        const title = String(
+          (cfg.nameField && node.card.fm[cfg.nameField]) ||
+          node.card.fm["Название"] || node.card.file.basename
+        );
+        const heading = group.createEl("a", {
+          cls: "bn-card-group-title internal-link",
+          text: title,
+          attr: { href: node.card.file.path, title, "data-href": node.card.file.path },
+        });
+        heading.addEventListener("click", (event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          void this.app.workspace.getLeaf(false).openFile(node.card.file);
+        });
+        body = group.createDiv({ cls: "bn-card-group-body" });
+      }
+      if (node.visible) {
+        this.renderCardEl(body, cfg, state, node.card, allCards, container, sourcePath, true);
+      }
+      for (let i = node.children.length - 1; i >= 0; i--) {
+        pending.push({ node: node.children[i], host: body });
+      }
+    }
 
     const addBtn = colEl.createDiv({ cls: "bn-add", text: "+ добавить" });
     addBtn.addEventListener("click", () => this.createCard(cfg, col));

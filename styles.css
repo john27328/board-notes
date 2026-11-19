@@ -305,6 +305,38 @@
   outline-offset: -2px;
 }
 
+.bn-card-group {
+  min-width: 0;
+  border: 0.5px solid var(--background-modifier-border);
+  border-color: color-mix(in srgb, var(--background-modifier-border) 55%, transparent);
+  border-radius: 3px;
+  padding: 4px;
+}
+
+.bn-card-group-title {
+  display: block;
+  margin: 0 2px 4px;
+  color: var(--text-muted);
+  font-size: 0.78em;
+  line-height: 1.35;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-decoration: none;
+}
+
+.bn-card-group-title:hover {
+  color: var(--text-normal);
+  text-decoration: underline;
+}
+
+.bn-card-group-body {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
 .bn-card {
   background: var(--background-primary);
   border: 1px solid var(--background-modifier-border);

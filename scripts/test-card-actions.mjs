@@ -8,7 +8,7 @@ const root = fileURLToPath(new URL("../", import.meta.url));
 const source = await readFile(new URL("../main.ts", import.meta.url), "utf8");
 const bundle = await build({
   stdin: {
-    contents: `${source}\nexport { BoardSettingsModal, parseBoardConfig, serializeBoardConfig, cardBasename, TFile as TestTFile, parseYaml as parseTestYaml }; export { stringifyYaml as stringifyTestYaml } from "obsidian";`,
+    contents: `${source}\nexport { BoardSettingsModal, parseBoardConfig, serializeBoardConfig, cardBasename, TFile as TestTFile, parseYaml as parseTestYaml }; export { stringifyYaml as stringifyTestYaml } from "obsidian"; export { groupCards as testGroupCards } from "./card-groups";`,
     resolveDir: root, sourcefile: "main.ts", loader: "ts",
   },
   bundle: true, write: false, format: "iife", globalName: "BoardTest",
@@ -56,6 +56,7 @@ try {
     HTMLElement.prototype.createSpan = function(options) { return this.createEl("span", options); };
     HTMLElement.prototype.empty = function() { this.replaceChildren(); };
     HTMLElement.prototype.addClass = function(...names) { this.classList.add(...names); };
+    HTMLElement.prototype.removeClass = function(...names) { this.classList.remove(...names); };
     HTMLElement.prototype.setAttr = function(name, value) { this.setAttribute(name, value); };
     HTMLElement.prototype.appendText = function(text) { this.append(document.createTextNode(text)); };
     HTMLElement.prototype.setText = function(text) { this.textContent = text; };
@@ -193,6 +194,55 @@ try {
     plugin.drawColumn(document.body.createDiv(), document.body.createDiv(), seriesCfg, state, "Новое", [ordinary, baseA, baseB], allSeries, "Series.md");
     check(rendered.join(",") === "Base B,Base A,Ordinary", "Kanban columns must use parent-first ordering");
     plugin.renderCardEl = originalRenderer;
+    const middle = seriesCard("Nested series", 7, "[[Base A]]");
+    const leaf = seriesCard("Nested part", 10, "[[Nested series]]");
+    const sibling = seriesCard("Another part", 9, "[[Base A]]");
+    const hierarchy = [ordinary, leaf, baseA, middle, sibling];
+    const groupHost = document.body.createDiv({cls: "board-notes"});
+    const groupBoard = groupHost.createDiv({cls: "bn-board"});
+    plugin.drawColumn(groupBoard, groupHost, seriesCfg, state, "Новое", hierarchy, hierarchy, "Series.md");
+    const outer = groupBoard.querySelector('.bn-card-group[data-base-path="Series/Base A.md"]');
+    check(outer && outer.querySelector(":scope > .bn-card-group-title").textContent === "Base A", "Groups must have the base card's title");
+    check(outer.querySelector(":scope > .bn-card-group-body > .bn-card").dataset.path === baseA.file.path, "Base card must precede every nested group and part in its column");
+    const inner = outer.querySelector('.bn-card-group[data-base-path="Series/Nested series.md"]');
+    check(inner && inner.querySelector(":scope > .bn-card-group-body > .bn-card").dataset.path === middle.file.path, "Nested bases must also come first inside their own group");
+    check(inner.querySelectorAll(".bn-card").length === 2, "Nested group must contain its base and part");
+    check(groupBoard.querySelectorAll(".bn-card").length === hierarchy.length, "Grouping must render every visible card exactly once");
+    const beforeOpen = opened.length;
+    outer.querySelector(":scope > .bn-card-group-title").click();
+    check(opened.length === beforeOpen + 1 && opened.at(-1) === baseA.file.path, "Clicking a group title must open its base note");
+    const filteredHost = document.body.createDiv();
+    plugin.drawColumn(filteredHost, filteredHost, seriesCfg, state, "Новое", [leaf, sibling], hierarchy, "Series.md");
+    check(filteredHost.querySelectorAll(".bn-card-group").length === 2 && filteredHost.querySelectorAll(".bn-card").length === 2, "Filtering must retain ancestor labels without showing filtered-out base cards");
+    middle.fm.Статус = "Готово";
+    await app.fileManager.processFrontMatter(middle.file, (data) => { data.Статус = "Готово"; });
+    const otherColumn = document.body.createDiv();
+    plugin.drawColumn(otherColumn, otherColumn, seriesCfg, state, "Новое", hierarchy, hierarchy, "Series.md");
+    check(otherColumn.querySelectorAll(".bn-card").length === hierarchy.length - 1 && otherColumn.querySelectorAll(".bn-card-group").length === 2, "A base in another column must still label its descendants without being duplicated as a card");
+    const target = document.body.createDiv();
+    plugin.drawColumn(target, target, seriesCfg, state, "Готово", hierarchy, hierarchy, "Series.md");
+    const transfer = new DataTransfer();
+    const dragged = otherColumn.querySelector('[data-path="Series/Nested part.md"]');
+    dragged.dispatchEvent(new DragEvent("dragstart", {bubbles: true, dataTransfer: transfer}));
+    target.querySelector(".bn-list").dispatchEvent(new DragEvent("drop", {bubbles: true, cancelable: true, dataTransfer: transfer}));
+    for (let i = 0; i < 20; i++) await Promise.resolve();
+    check(fm(leaf.file).Статус === "Готово" && fm(leaf.file).Series === "[[Nested series]]", `Dragging a nested card must change only its status and preserve its base link: ${JSON.stringify({data: transfer.getData("text/plain"), frontmatter: fm(leaf.file)})}`);
+    check(fm(baseA.file).Статус === "Новое" && fm(sibling.file).Статус === "Новое", "Dragging a part must not move its base or siblings");
+    const cycleA = seriesCard("Cycle A", 1, "[[Cycle B]]"), cycleB = seriesCard("Cycle B", 2, "[[Cycle A]]");
+    const missing = seriesCard("Missing base", 3, "[[Missing]]"), self = seriesCard("Self", 4, "[[Self]]");
+    const cycleHost = document.body.createDiv();
+    plugin.drawColumn(cycleHost, cycleHost, seriesCfg, state, "Новое", [cycleA, cycleB, missing, self], [cycleA, cycleB, missing, self], "Series.md");
+    check(cycleHost.querySelectorAll(".bn-card").length === 4, "Cyclic, missing and self links must not hide or duplicate cards");
+    const deep = Array.from({length: 5000}, (_, i) => ({file: {path: `deep/${i}`}, fm: {parent: i ? `deep/${i - 1}` : null}, tags: []}));
+    const forest = BoardTest.testGroupCards([deep.at(-1)], deep, (card) => card.fm.parent ? [card.fm.parent] : [], () => 0);
+    let node = forest[0], depth = 0;
+    while (node) { depth++; node = node.children[0]; }
+    check(depth === 5000, "Grouping must support arbitrary depth without recursive stack limits");
+    const multi = seriesCard("Multiple bases", 5, ["[[Missing]]", "[[Base B]]", "[[Base A]]"]);
+    const multiHost = document.body.createDiv();
+    plugin.drawColumn(multiHost, multiHost, seriesCfg, state, "Новое", [multi], [multi, baseA, baseB], "Series.md");
+    check(multiHost.querySelectorAll(".bn-card").length === 1 && multiHost.querySelector(".bn-card-group").dataset.basePath === baseB.file.path, "Multiple links must use the first valid base without duplicating the card");
+    window.groupPreview = groupHost;
     window.actionFixture = {app, plugin, files, contents};
     return {created: opened.length, trashed: deleted.length};
   });
@@ -226,7 +276,22 @@ try {
       if (![...files.keys()].some((path) => path.startsWith("Dacha/Задача на даче — "))) throw new Error("QuickAdd direct board creation failed");
     }, script);
   }
-  console.log("Card actions passed: naming, duplicates, timestamps, titles, subtask links, parent-first sorting in all views, completed statuses, QuickAdd API, archive confirmation and scope.");
+  if (process.env.BOARD_NOTES_GROUP_SCREENSHOT_DIR) {
+    const css = await readFile(new URL("../styles.css", import.meta.url), "utf8");
+    await page.addStyleTag({content: css});
+    await page.evaluate(() => {
+      const preview = window.groupPreview;
+      document.body.replaceChildren(preview);
+      document.body.style.cssText = 'margin:24px;font:14px Arial;--background-primary:#fafafa;--background-secondary:#f2f2f2;--background-modifier-border:#aaa;--text-muted:#666;--text-normal:#222;--interactive-accent:#5688bb;background:#fafafa;color:#222';
+    });
+    await page.setViewportSize({width: 480, height: 760});
+    await page.screenshot({path: `${process.env.BOARD_NOTES_GROUP_SCREENSHOT_DIR}/groups-light.png`});
+    await page.evaluate(() => {
+      document.body.style.cssText = 'margin:24px;font:14px Arial;--background-primary:#242424;--background-secondary:#1e1e1e;--background-modifier-border:#666;--text-muted:#aaa;--text-normal:#eee;--interactive-accent:#78aadd;background:#242424;color:#eee';
+    });
+    await page.screenshot({path: `${process.env.BOARD_NOTES_GROUP_SCREENSHOT_DIR}/groups-dark.png`});
+  }
+  console.log("Card actions passed: naming, duplicates, timestamps, titles, subtask links, nested column groups, cross-column/filter context, drag-and-drop, cycle recovery, 5000-level depth, parent-first sorting, completed statuses, QuickAdd API, archive confirmation and scope.");
 } finally {
   await browser.close();
 }

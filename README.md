@@ -217,6 +217,8 @@ Set `baseTaskField` (default `BaseTask`) on a child card to a wikilink to its pa
 
 Cards with children always appear before other cards in each Kanban column, flat grid, table and child-card list. The selected sort rules apply within each group. A parent keeps its priority when its children are hidden by filters.
 
+Inside Kanban columns, cards are grouped by their base task with a very thin frame and a clickable group title. The base card comes first inside its group when it is visible in that column. If the base is in another column or filtered out, only its title remains as context. Groups follow the full ancestor chain without a fixed depth limit. Invalid cyclic links are rendered safely without changing notes; when a card has several parent links, the first valid one determines its group so the card appears once. Dropping a part into another column changes only that part's status.
+
 - **Board** — the parent card shows a `done/total готово` badge; the toolbar has an **only base tasks** chip that hides everything except cards that have children.
 - **Card** (` ```card `) — a "child tasks" section lists the children with their statuses and a `done/total` counter; a **+ subtask** button in the header creates a new card from the board's template, sets its base-task link, copies the parent's other frontmatter fields (except status, the base-task field, `created`/`updated` and the auto-archive date) and opens it in a new tab.
 - **What counts as done** — with `autoArchive`, the `source` and `target` statuses; otherwise `doneStatuses` if set, or the last entry of `columns`.
