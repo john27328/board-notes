@@ -88,6 +88,7 @@ export function parseBoardConfig(source: string): BoardConfig {
     cardRatingField: cardRaw.ratingField ? String(cardRaw.ratingField) : undefined,
     cardRecField: cardRaw.recField ? String(cardRaw.recField) : undefined,
     autoArchive,
+    doneStatuses: Array.isArray(raw.doneStatuses) ? asStringList(raw.doneStatuses) : undefined,
     baseTaskField: raw.baseTaskField ? String(raw.baseTaskField) : DEFAULT_BASE_TASK_FIELD,
   };
 }
@@ -125,6 +126,7 @@ export function serializeBoardConfig(cfg: BoardConfig): string {
     };
   }
   if (cfg.autoArchive) obj.autoArchive = cfg.autoArchive;
+  if (cfg.doneStatuses) obj.doneStatuses = cfg.doneStatuses;
 
   const card: Record<string, any> = {};
   if (cfg.cardFields.length) card.fields = cfg.cardFields;

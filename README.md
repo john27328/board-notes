@@ -102,6 +102,7 @@ All options are read from the YAML inside the ` ```board ` block.
 | `meta` | string[] | `[]` | Frontmatter fields shown on the card face in the board view. Only explicitly listed fields are shown. |
 | `coverField` | string | — | Frontmatter field containing an Obsidian wikilink to an image to display above the title on each board card. |
 | `baseTaskField` | string | `BaseTask` | Frontmatter field holding a wikilink to a card's base (parent) task. See [Subtasks](#subtasks). |
+| `doneStatuses` | string[] | last column | Completed child-card statuses for progress counters when `autoArchive` is not configured. For example, `[просмотрено]` on a media board. |
 | `showTags` | boolean | `true` | Set to `false` to hide the automatic tag-filter row. Useful when notes carry incidental real Obsidian tags unrelated to the board (e.g. a literal `#include` in a code snippet gets indexed as a tag and shows up as noise). |
 | `touchUpdated` | boolean | `false` | When `true`, refreshes the card's `updated` field after a Board Notes edit. It does not react to ordinary note saves. |
 | `flat` | boolean | `false` | Skip Kanban columns entirely and render all matching cards as a single filterable grid. For reference indexes (FAQs, glossaries) that have topic tags but no workflow status — `statusField`/`columns` are ignored when this is set. |
@@ -214,9 +215,11 @@ If the note's tag matches a (non-`flat`) ` ```board ` board, a row of column chi
 
 Set `baseTaskField` (default `BaseTask`) on a child card to a wikilink to its parent, e.g. `BaseTask: "[[Parent task]]"`.
 
+Cards with children always appear before other cards in each Kanban column, flat grid, table and child-card list. The selected sort rules apply within each group. A parent keeps its priority when its children are hidden by filters.
+
 - **Board** — the parent card shows a `done/total готово` badge; the toolbar has an **only base tasks** chip that hides everything except cards that have children.
 - **Card** (` ```card `) — a "child tasks" section lists the children with their statuses and a `done/total` counter; a **+ subtask** button in the header creates a new card from the board's template, sets its base-task link, copies the parent's other frontmatter fields (except status, the base-task field, `created`/`updated` and the auto-archive date) and opens it in a new tab.
-- **What counts as done** — with `autoArchive`, the `source` and `target` statuses; otherwise the last entry of `columns`.
+- **What counts as done** — with `autoArchive`, the `source` and `target` statuses; otherwise `doneStatuses` if set, or the last entry of `columns`.
 
 ### `tags` block
 

@@ -93,7 +93,8 @@ try {
         frontmatter: fm(file),
         tags: [...contents.get(file.path).matchAll(/^#([\w-]+)/gm)].map((match) => ({tag: `#${match[1]}`})),
         sections: contents.get(file.path).includes("```") ? [{type: "code"}] : [],
-      }) },
+      }), getFirstLinkpathDest: (target) => files.get(target) ?? files.get(`${target}.md`) ??
+        [...files.values()].find((file) => file.basename === target) },
       fileManager: {
         processFrontMatter: async (file, update) => {
           const data = fm(file); update(data);
@@ -162,6 +163,36 @@ try {
     check(deleted.length === 1 && deleted[0] === b.path, "Cleanup must skip restored cards, new arrivals, other boards and excluded notes");
     check(!plugin.archiveStatus({...cfg, flat: true}), "Flat boards must not offer cleanup");
     check(!plugin.archiveStatus({...cfg, columns: ["Новое", "Готово"]}), "Last column must not be treated as archive by default");
+    const mediaCfg = parseBoardConfig('tag: "#anime"\ncolumns: [посмотреть, просмотрено, дропнул]\ndoneStatuses: [просмотрено]');
+    check(plugin.doneStatusesOf(mediaCfg).has("просмотрено") && !plugin.doneStatusesOf(mediaCfg).has("дропнул"), "Media progress must count the configured completed status rather than the last column");
+    check(parseBoardConfig(serializeBoardConfig(mediaCfg)).doneStatuses[0] === "просмотрено", "Completed statuses must survive a settings save");
+    const seriesCfg = parseBoardConfig('tag: "#series-test"\nbaseTaskField: Series\ncolumns: [Новое, Готово]\ntable:\n  columns: [{field: __title}]');
+    const seriesCard = (name, score, base) => {
+      const file = put(`Series/${name}.md`, yaml({Название: name, Статус: "Новое", Оценка: score, Series: base}));
+      return {file, fm: fm(file), tags: ["#series-test"]};
+    };
+    const baseA = seriesCard("Base A", 1), baseB = seriesCard("Base B", 2);
+    const ordinary = seriesCard("Ordinary", 10);
+    const hiddenChild = seriesCard("Hidden child", 9, "[[Series/Base A|Alias]]");
+    const childB = seriesCard("Child B", 8, "[[Base B]]");
+    const allSeries = [ordinary, hiddenChild, baseA, childB, baseB];
+    const sortedNames = (cards, direction) => plugin.sortCards(cards, [{field: "Оценка", direction}], seriesCfg, allSeries).map((card) => card.file.basename).join(",");
+    check(sortedNames([ordinary, baseA, baseB], "desc") === "Base B,Base A,Ordinary", "Parents must stay above ordinary cards even when their children are filtered out; descending sort must remain inside each group");
+    check(sortedNames([ordinary, baseA, baseB], "asc") === "Base A,Base B,Ordinary", "Ascending sort must remain inside the parent group");
+    check(plugin.sortCards([ordinary, baseA], [], seriesCfg).at(0) === baseA, "Cards without children must keep the existing path ordering");
+    const state = {hiddenColumns: new Set(), tableFilters: new Map(), tableSort: [{field: "Оценка", direction: "desc"}]};
+    const tableHost = document.body.createDiv();
+    plugin.drawTable(tableHost, seriesCfg, state, [ordinary, baseA, baseB], "Series.md", allSeries);
+    check([...tableHost.querySelectorAll("tbody tr")].map((row) => row.textContent).join(",") === "Base B,Base A,Ordinary", "Table must use parent-first ordering");
+    const originalRenderer = plugin.renderCardEl;
+    const rendered = [];
+    plugin.renderCardEl = (_host, _cfg, _state, card) => { rendered.push(card.file.basename); };
+    plugin.drawFlatGrid(document.body.createDiv(), seriesCfg, state, [ordinary, baseA, baseB], allSeries, "Series.md");
+    check(rendered.join(",") === "Base B,Base A,Ordinary", "Flat grids must use parent-first ordering");
+    rendered.length = 0;
+    plugin.drawColumn(document.body.createDiv(), document.body.createDiv(), seriesCfg, state, "Новое", [ordinary, baseA, baseB], allSeries, "Series.md");
+    check(rendered.join(",") === "Base B,Base A,Ordinary", "Kanban columns must use parent-first ordering");
+    plugin.renderCardEl = originalRenderer;
     window.actionFixture = {app, plugin, files, contents};
     return {created: opened.length, trashed: deleted.length};
   });
@@ -195,7 +226,7 @@ try {
       if (![...files.keys()].some((path) => path.startsWith("Dacha/Задача на даче — "))) throw new Error("QuickAdd direct board creation failed");
     }, script);
   }
-  console.log("Card actions passed: naming, duplicates, timestamps, titles, subtask links, QuickAdd API, archive confirmation and scope.");
+  console.log("Card actions passed: naming, duplicates, timestamps, titles, subtask links, parent-first sorting in all views, completed statuses, QuickAdd API, archive confirmation and scope.");
 } finally {
   await browser.close();
 }

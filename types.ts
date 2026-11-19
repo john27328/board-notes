@@ -57,6 +57,8 @@ export interface BoardConfig {
   cardRatingField?: string;
   cardRecField?: string;
   autoArchive?: AutoArchiveConfig;
+  /** Completed child-card statuses when auto-archive is not configured. */
+  doneStatuses?: string[];
   baseTaskField: string;
 }
 

@@ -544,7 +544,7 @@ export default class BoardNotesPlugin extends Plugin {
           header.createSpan({ cls: "bn-card-children-count", text: `${done}/${children.length}` });
 
           const list = section.createDiv({ cls: "bn-card-children-list" });
-          this.sortCards(children, board.cfg.table.sort, board.cfg).forEach((child) => {
+          this.sortCards(children, board.cfg.table.sort, board.cfg, allCards).forEach((child) => {
               const status = String(child.fm[board!.cfg.statusField] ?? "");
               const row = list.createDiv({
                 cls: "bn-card-children-item" + (doneSet.has(status) ? " done" : ""),
@@ -809,6 +809,7 @@ export default class BoardNotesPlugin extends Plugin {
   /** Status values that count as "done" for progress purposes — the auto-archive source/target columns. */
   doneStatusesOf(cfg: BoardConfig): Set<string> {
     if (cfg.autoArchive) return new Set([cfg.autoArchive.source, cfg.autoArchive.target]);
+    if (cfg.doneStatuses) return new Set(cfg.doneStatuses);
     return cfg.columns.length ? new Set([cfg.columns[cfg.columns.length - 1]]) : new Set();
   }
 
@@ -1009,7 +1010,7 @@ export default class BoardNotesPlugin extends Plugin {
     );
 
     if (state.view === "table") {
-      this.drawTable(container, cfg, state, cards, sourcePath);
+      this.drawTable(container, cfg, state, cards, sourcePath, allCards);
       return;
     }
 
@@ -1035,7 +1036,7 @@ export default class BoardNotesPlugin extends Plugin {
     sourcePath: string
   ) {
     const grid = container.createDiv({ cls: "bn-flat-grid" });
-    this.sortCards(cards, state.tableSort, cfg).forEach((c) =>
+    this.sortCards(cards, state.tableSort, cfg, allCards).forEach((c) =>
       this.renderCardEl(grid, cfg, state, c, allCards, container, sourcePath, false)
     );
 
@@ -1091,8 +1092,18 @@ export default class BoardNotesPlugin extends Plugin {
     return left.file.path.localeCompare(right.file.path, undefined, { sensitivity: "base" });
   }
 
-  private sortCards(cards: Card[], sort: TableSort[], cfg: BoardConfig): Card[] {
-    return [...cards].sort((left, right) => this.compareCards(left, right, sort, cfg));
+  private sortCards(cards: Card[], sort: TableSort[], cfg: BoardConfig, allCards: Card[] = cards): Card[] {
+    const paths = new Set(allCards.map((card) => card.file.path));
+    const baseTasks = new Set<string>();
+    for (const card of allCards) {
+      for (const target of this.resolveLinkTargets(card.file.path, card.fm[cfg.baseTaskField])) {
+        if (target !== card.file.path && paths.has(target)) baseTasks.add(target);
+      }
+    }
+    return [...cards].sort((left, right) =>
+      Number(baseTasks.has(right.file.path)) - Number(baseTasks.has(left.file.path)) ||
+      this.compareCards(left, right, sort, cfg)
+    );
   }
 
   drawTable(
@@ -1100,18 +1111,22 @@ export default class BoardNotesPlugin extends Plugin {
     cfg: BoardConfig,
     state: BoardState,
     cards: Card[],
-    sourcePath: string
+    sourcePath: string,
+    allCards: Card[] = cards
   ) {
     const columns = this.tableColumnsFor(cfg);
-    const filtered = cards
-      .filter((card) =>
+    const filtered = this.sortCards(
+      cards.filter((card) =>
         (cfg.flat || !state.hiddenColumns.has(String(card.fm[cfg.statusField] ?? ""))) &&
         columns.every((column) => {
           const filter = state.tableFilters.get(column.field)?.trim().toLowerCase();
           return !filter || this.tableValue(card, column, cfg).toLowerCase().includes(filter);
         })
-      )
-      .sort((left, right) => this.compareCards(left, right, state.tableSort, cfg));
+      ),
+      state.tableSort,
+      cfg,
+      allCards
+    );
 
     const wrap = container.createDiv({ cls: "bn-table-wrap" });
     const table = wrap.createEl("table", { cls: "bn-table" });
@@ -1633,7 +1648,8 @@ export default class BoardNotesPlugin extends Plugin {
     const colCards = this.sortCards(
       cards.filter((c) => (c.fm[cfg.statusField] ?? "") === col),
       state.tableSort,
-      cfg
+      cfg,
+      allCards
     );
 
     header.createSpan({ cls: "bn-count", text: String(colCards.length) });
