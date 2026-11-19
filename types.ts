@@ -35,6 +35,8 @@ export interface BoardConfig {
   folder?: string;
   template?: string;
   nameField?: string;
+  /** Append the local creation date/time to new filenames, not display titles. */
+  timestampFilenames: boolean;
   exclude: string[];
   facets: string[];
   vocab: Record<string, string[]>;

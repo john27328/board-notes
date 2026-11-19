@@ -20,8 +20,11 @@ npm install
 | `npm run check` | Typecheck + production build |
 | `npm run deploy` | `check`, then copy `main.js`, `manifest.json`, `styles.css` into the vault |
 | `npm run test:table` | Chromium regression check for opaque sticky table headers, filters and scrolling |
+| `npm run test:cards` | Card creation, short titles, duplicate filenames, subtasks and archive confirmation against a mocked Obsidian API in Chromium |
 
 Before the browser check, run `npx playwright install chromium` (Linux may also need `npx playwright install-deps chromium`). The test uses synthetic data and does not read vault notes. Set `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH` to use an existing Chromium binary. Optional `BOARD_NOTES_TEST_THEME` loads a theme CSS file; `BOARD_NOTES_TEST_CSS` substitutes the plugin stylesheet to reproduce a regression against an older version. The fixture checks light/dark and preview/live-preview containers; it does not launch Obsidian.
+
+For `test:cards`, optional `BOARD_NOTES_QUICKADD_SCRIPT` points to a QuickAdd user script to exercise both its board picker and direct-board settings. This test runs the real plugin methods and modals with an in-memory vault; it does not launch Obsidian or touch real notes.
 
 ## Layout
 

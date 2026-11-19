@@ -93,6 +93,7 @@ All options are read from the YAML inside the ` ```board ` block.
 | `template` | string | — | Path to a template note. New cards are created from it, with the status field patched to match the column clicked. |
 | `statusField` | string | `Статус` | Frontmatter field used to group cards into columns. |
 | `nameField` | string | — | Frontmatter field to use as the card title. Falls back to a `Название` field, then the file's basename. |
+| `timestampFilenames` | boolean | `true` | New filenames include the local creation date/time. The board and table show the entered title from `nameField` or `Название`. Disable to create plain filenames. Existing files are not renamed. |
 | `columns` | string[] | inferred | Explicit, ordered list of status values to show as columns. If omitted, columns are inferred from whatever status values are actually in use. |
 | `exclude` | string[] | `[]` | Vault-relative paths to exclude from the board even if tagged (e.g. the template file, if it carries the tag itself). The note hosting the board is always excluded automatically. |
 | `facets` | string[] | `[]` | Frontmatter fields to expose as filter-chip rows in the toolbar (in addition to the automatic tag-filter row, which is always shown if the cards have extra tags). |
@@ -109,6 +110,12 @@ All options are read from the YAML inside the ` ```board ` block.
 | `table.sort` | list of `{field, direction}` | `[]` | Persistent card sort rules in priority order, applied to both the board and table. `direction` is `asc` or `desc`; `__modified` is the note's modification date. Configure them in ⚙; the first rule has the highest priority. |
 | `autoArchive` | object | — | Automatically moves cards from `source` to `target` after `afterDays` days since their last status change. `statusChangedField` defaults to `Статус изменён`. The check runs when Obsidian starts and hourly afterward. |
 | `card` | object | `{}` | Centralized settings for the ` ```card ` block (see below) — `fields`, `links`, `labels`, `ratingField`, `recField`, `copyFields`. Applied to any note tagged for this board whose own ` ```card ` block is empty. |
+
+### New cards and repeated titles
+
+The add buttons prompt for a title. A card called `Replace filter` gets a filename such as `Replace filter — 2026-11-19 18-30-45.md`; the board and table display `Replace filter`. A numeric suffix prevents collisions, including simultaneous creation in the same second. Characters that cannot be used in filenames are replaced; the entered display title is preserved. New cards get today's `created`/`updated` dates instead of stale template dates. Subtasks keep their own title and link to the parent's full path.
+
+Integrations can use `listBoards()` and `createCardOnBoard(boardPath, tag, title?, formatTemplate?)` on the plugin instance. Omit `title` to show the same title prompt. QuickAdd can pass `content => quickAddApi.format(content)` as the last argument to keep template prompts; cancelling happens before a file is written. Include the board's title field in its template. `timestampFilenames: false` disables timestamps for one board; settings preserve that choice.
 
 ### Card update date
 
@@ -233,6 +240,8 @@ Every non-`flat` board's toolbar has a ⚙ button that opens a settings modal ri
   - "+ add" appends a blank column at the end.
 - **Tags / vocab** — same idea for each `vocab` field: renaming a value batch-updates every card that had it. A field at the bottom lets you add a brand-new vocab field.
 - **Update date** — the "Update the updated field when a card changes" checkbox enables `touchUpdated: true` for this board. It does not track ordinary note saves.
+- **Filename timestamps** — enabled by default for new cards; the display title stays separate from the filename.
+- **Archive** — **Clear archive…** is available only inside settings. A confirmation shows the number of cards to move to trash. Only cards in `autoArchive.target` (or an explicit `Архив`/`Archive` column) are selected; board/template exclusions still apply. Restored cards and cards archived after the confirmation opened are skipped. Attachments are retained. Flat boards do not offer cleanup.
 - **Card** — editable lists for the centralized ` ```card ` config (see above): "Поля" (a plain list), "Ссылки" and "Подписи" (field → label pairs), "Копируемые поля", plus fields for the special rating and recommendation display. These aren't tied to individual cards, so renaming here doesn't touch any note — it just changes what an empty ` ```card ` block displays.
 - "Save" rewrites the ` ```board ` code block itself (via `stringifyYaml`) and applies all the renames to cards in one go; the live board re-parses its config and redraws immediately, no need to reopen the note.
 

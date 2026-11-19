@@ -68,6 +68,7 @@ export function parseBoardConfig(source: string): BoardConfig {
     folder: raw.folder ? String(raw.folder) : undefined,
     template: raw.template ? String(raw.template) : undefined,
     nameField: raw.nameField ? String(raw.nameField) : undefined,
+    timestampFilenames: raw.timestampFilenames !== false,
     exclude: asStringList(raw.exclude),
     facets: asStringList(raw.facets),
     vocab,
@@ -96,6 +97,7 @@ export function serializeBoardConfig(cfg: BoardConfig): string {
   if (cfg.folder) obj.folder = cfg.folder;
   if (cfg.template) obj.template = cfg.template;
   if (cfg.nameField) obj.nameField = cfg.nameField;
+  if (!cfg.timestampFilenames) obj.timestampFilenames = false;
   if (cfg.exclude.length) obj.exclude = cfg.exclude;
   if (cfg.statusField !== DEFAULT_STATUS_FIELD) obj.statusField = cfg.statusField;
   if (cfg.baseTaskField !== DEFAULT_BASE_TASK_FIELD) obj.baseTaskField = cfg.baseTaskField;

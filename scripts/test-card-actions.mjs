@@ -1,0 +1,201 @@
+import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
+import { fileURLToPath } from "node:url";
+import { build } from "esbuild";
+import { chromium } from "playwright";
+
+const root = fileURLToPath(new URL("../", import.meta.url));
+const source = await readFile(new URL("../main.ts", import.meta.url), "utf8");
+const bundle = await build({
+  stdin: {
+    contents: `${source}\nexport { BoardSettingsModal, parseBoardConfig, serializeBoardConfig, cardBasename, TFile as TestTFile, parseYaml as parseTestYaml }; export { stringifyYaml as stringifyTestYaml } from "obsidian";`,
+    resolveDir: root, sourcefile: "main.ts", loader: "ts",
+  },
+  bundle: true, write: false, format: "iife", globalName: "BoardTest",
+  plugins: [{
+    name: "test-obsidian-api",
+    setup(build) {
+      build.onResolve({ filter: /^obsidian$/ }, () => ({ path: "obsidian", namespace: "test" }));
+      build.onLoad({ filter: /.*/, namespace: "test" }, () => ({ resolveDir: root, contents: `
+        import { load, dump } from "js-yaml";
+        export const parseYaml = load, stringifyYaml = dump;
+        export class App {}
+        export class TFile {
+          constructor(path) { this.path = path; this.basename = path.split('/').pop().replace(/\\.md$/, ''); this.extension = 'md'; this.stat = {mtime: 0}; }
+        }
+        export class Plugin { constructor(app) { this.app = app; } }
+        export class MarkdownRenderChild {}
+        export class Modal {
+          constructor(app) { this.app = app; this.contentEl = document.createElement('section'); }
+          open() { document.body.append(this.contentEl); window.lastModal = this; this.onOpen?.(); }
+          close() { this.onClose?.(); this.contentEl.remove(); }
+        }
+        export class FuzzySuggestModal extends Modal {}
+        export class Notice { constructor(message) { (window.notices ??= []).push(message); } }
+      ` }));
+    },
+  }],
+});
+const browser = await chromium.launch({
+  executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH || undefined,
+});
+try {
+  const page = await browser.newPage();
+  await page.evaluate(() => {
+    HTMLElement.prototype.createEl = function(tag, options = {}) {
+      const el = document.createElement(tag);
+      for (const [key, value] of Object.entries(options)) {
+        if (key === "cls") el.className = value;
+        else if (key === "text") el.textContent = value;
+        else if (key === "attr") for (const [name, content] of Object.entries(value)) el.setAttribute(name, content);
+        else el[key] = value;
+      }
+      this.append(el); return el;
+    };
+    HTMLElement.prototype.createDiv = function(options) { return this.createEl("div", options); };
+    HTMLElement.prototype.createSpan = function(options) { return this.createEl("span", options); };
+    HTMLElement.prototype.empty = function() { this.replaceChildren(); };
+    HTMLElement.prototype.addClass = function(...names) { this.classList.add(...names); };
+    HTMLElement.prototype.setAttr = function(name, value) { this.setAttribute(name, value); };
+    HTMLElement.prototype.appendText = function(text) { this.append(document.createTextNode(text)); };
+    HTMLElement.prototype.setText = function(text) { this.textContent = text; };
+    const RealDate = Date;
+    window.Date = class extends RealDate {
+      constructor(...args) { super(...(args.length ? args : [2026, 10, 19, 18, 30, 45])); }
+    };
+  });
+  await page.addScriptTag({ content: bundle.outputFiles[0].text });
+  const result = await page.evaluate(async () => {
+    const { default: Plugin, BoardSettingsModal, parseBoardConfig, serializeBoardConfig, cardBasename } = BoardTest;
+    const check = (condition, message) => { if (!condition) throw new Error(message); };
+    const files = new Map(), contents = new Map(), deleted = [], opened = [];
+    let FileClass;
+    // Obtain the mocked TFile constructor from a tiny fixture through a test global.
+    // It must be the same constructor used by the real plugin's instanceof checks.
+    FileClass = BoardTest.TestTFile;
+    const fm = (file) => {
+      const match = contents.get(file.path)?.match(/^---\n([\s\S]*?)\n---/);
+      return match ? BoardTest.parseTestYaml(match[1]) : {};
+    };
+    const put = (path, content) => {
+      const file = new FileClass(path); files.set(path, file); contents.set(path, content); return file;
+    };
+    const yaml = (data) => `---\n${BoardTest.stringifyTestYaml(data)}---\n`;
+    const app = {
+      vault: {
+        getMarkdownFiles: () => Array.from(files.values()),
+        getAbstractFileByPath: (path) => files.get(path),
+        read: async (file) => contents.get(file.path),
+        cachedRead: async (file) => contents.get(file.path),
+        create: async (path, content) => { if (files.has(path)) throw new Error("exists"); return put(path, content); },
+      },
+      metadataCache: { getFileCache: (file) => ({
+        frontmatter: fm(file),
+        tags: [...contents.get(file.path).matchAll(/^#([\w-]+)/gm)].map((match) => ({tag: `#${match[1]}`})),
+        sections: contents.get(file.path).includes("```") ? [{type: "code"}] : [],
+      }) },
+      fileManager: {
+        processFrontMatter: async (file, update) => {
+          const data = fm(file); update(data);
+          contents.set(file.path, yaml(data) + contents.get(file.path).replace(/^---\n[\s\S]*?\n---\n?/, ""));
+        },
+        trashFile: async (file) => { deleted.push(file.path); files.delete(file.path); contents.delete(file.path); },
+      },
+      workspace: { getLeaf: () => ({ openFile: async (file) => opened.push(file.path) }) },
+    };
+    const plugin = new Plugin(app);
+    const cfg = parseBoardConfig('tag: "#home-task"\nfolder: Cards\ntemplate: Template.md\nexclude: [Template.md, Excluded.md]\ncolumns: [Новое, Готово, Архив]');
+    check(cfg.timestampFilenames, "Timestamp names must be enabled by default");
+    check(!parseBoardConfig(serializeBoardConfig({...cfg, timestampFilenames: false})).timestampFilenames, "Explicit opt-out must survive settings save");
+    put("Template.md", '---\nНазвание:\n  "{ NAME }":\ncreated: 2020-01-01\nupdated: 2020-01-01\nГод: "{{VALUE:Год}}"\nСтатус: Новое\n---\n#home-task\n\n```card\n```\n');
+    put("Home.md", `\`\`\`board\n${cfg.raw}\n\`\`\`\n`);
+    const before = files.size;
+    const cancelled = plugin.createCard(cfg, "Новое");
+    window.lastModal.contentEl.querySelector('button[type="button"]').click();
+    check(await cancelled === null && files.size === before, "Cancel must create no files");
+    const title = 'Заменить фильтр: "кухня" $& $$';
+    const [first, second] = await Promise.all([
+      plugin.createCard(cfg, "Новое", undefined, title),
+      plugin.createCard(cfg, "Новое", undefined, title),
+    ]);
+    check(first && second && first.path !== second.path, "Concurrent identical titles must get different paths");
+    check(first.path.includes("2026-11-19 18-30-45"), "Filename must contain local creation time");
+    check(!/[\\:*?"<>|]/.test(first.basename), "Filename must be portable");
+    check(fm(first).Название === title && fm(second).Название === title, "Display title must preserve punctuation and exclude timestamp");
+    check(String(fm(first).created).includes("2026"), "Creation date must not come from stale template");
+    check(contents.get(first.path).includes("```card\n```"), "Template blocks must be preserved");
+    check(new TextEncoder().encode(cardBasename("я".repeat(200), "2026-11-19 18-30-45")).length < 250, "Long Cyrillic titles must fit filesystem limits");
+    const card = plugin.getCards(cfg, "Home.md").find((card) => card.file === first);
+    const parent = document.body.createDiv();
+    plugin.renderCardEl(parent, cfg, {}, card, [card], parent, "Home.md", false);
+    check(parent.querySelector(".bn-card-title").textContent === title, "Board must render the short title");
+    check(plugin.tableValue(card, {field: "__title"}, cfg) === title, "Table must render the short title");
+    const child = await plugin.createCard(cfg, "Новое", first, "Подзадача");
+    check(fm(child).Название === "Подзадача", "Child must not inherit its parent's title");
+    check(fm(child).BaseTask === `[[${first.path.replace(/\.md$/, "")}]]`, "Child link must target the actual timestamped path");
+    const noStamp = await plugin.createCard({...cfg, timestampFilenames: false}, "Новое", undefined, "Обычное имя");
+    check(noStamp.path === "Cards/Обычное имя.md", "Opt-out must keep readable plain filenames");
+    const otherCfg = parseBoardConfig('tag: "#dacha-task"\nfolder: Dacha\ncolumns: [Новое, Архив]');
+    put("Dacha.md", `\`\`\`board\n${otherCfg.raw}\n\`\`\`\n`);
+    const custom = await plugin.createCard({...otherCfg, nameField: "Модель"}, "Новое", undefined, "Насос");
+    check(fm(custom).Модель === "Насос", "Configured title fields must work");
+    const boards = await plugin.listBoards();
+    check(boards.length === 2, "QuickAdd must list boards, not ordinary code blocks");
+    const quick = await plugin.createCardOnBoard("Dacha.md", "#dacha-task", "Полить грядки");
+    check(quick.path.startsWith("Dacha/") && fm(quick).Название === "Полить грядки", "QuickAdd API must use the board's creation path");
+    const archived = (path, tag = "home-task") => put(path, yaml({tags: [tag], Статус: "Архив"}));
+    const a = archived("Cards/old-a.md"), b = archived("Cards/old-b.md");
+    archived("Excluded.md"); archived("Dacha/other.md", "dacha-task");
+    const settings = new BoardSettingsModal(app, plugin, cfg, "Home.md"); settings.open();
+    const cleanupButton = [...settings.contentEl.querySelectorAll("button")].find((el) => el.textContent === "Очистить архив…");
+    check(cleanupButton && deleted.length === 0, "Archive cleanup must be in settings and must not run immediately");
+    cleanupButton.click();
+    const confirmation = window.lastModal;
+    check(confirmation.contentEl.textContent.includes("2"), "Confirmation must count only this board's archive");
+    [...confirmation.contentEl.querySelectorAll("button")].find((el) => el.textContent === "Отмена").click();
+    check(deleted.length === 0, "Cancelling archive cleanup must preserve files");
+    cleanupButton.click();
+    await app.fileManager.processFrontMatter(a, (data) => { data.Статус = "Новое"; });
+    archived("Cards/late.md");
+    window.lastModal.contentEl.querySelector("button.mod-warning").click();
+    for (let i = 0; i < 20; i++) await Promise.resolve();
+    check(deleted.length === 1 && deleted[0] === b.path, "Cleanup must skip restored cards, new arrivals, other boards and excluded notes");
+    check(!plugin.archiveStatus({...cfg, flat: true}), "Flat boards must not offer cleanup");
+    check(!plugin.archiveStatus({...cfg, columns: ["Новое", "Готово"]}), "Last column must not be treated as archive by default");
+    window.actionFixture = {app, plugin, files, contents};
+    return {created: opened.length, trashed: deleted.length};
+  });
+  assert.ok(result.created >= 6);
+  assert.equal(result.trashed, 1);
+  if (process.env.BOARD_NOTES_QUICKADD_SCRIPT) {
+    const script = await readFile(process.env.BOARD_NOTES_QUICKADD_SCRIPT, "utf8");
+    await page.evaluate(async (script) => {
+      const module = {exports: {}};
+      new Function("module", script)(module);
+      const {app, plugin, files} = window.actionFixture;
+      app.plugins = {getPlugin: () => plugin};
+      const params = {app, obsidian: {Notice: class {}}, quickAddApi: {
+        suggester: async (_labels, boards) => boards.find((board) => board.tag === "#home-task"),
+        format: async (content) => content.replaceAll("{{VALUE:Год}}", "2026"),
+      }};
+      const fillName = (title) => {
+        const modal = window.lastModal;
+        modal.contentEl.querySelector("input").value = title;
+        modal.contentEl.querySelector("form").dispatchEvent(new Event("submit", {cancelable: true}));
+      };
+      const all = module.exports.entry(params, {});
+      for (let i = 0; i < 20; i++) await Promise.resolve();
+      fillName("Из QuickAdd"); await all;
+      if (![...files.keys()].some((path) => path.startsWith("Cards/Из QuickAdd — "))) throw new Error("QuickAdd picker creation failed");
+      const created = [...files.values()].find((file) => file.path.startsWith("Cards/Из QuickAdd — "));
+      if (app.metadataCache.getFileCache(created).frontmatter.Год !== "2026") throw new Error("QuickAdd must still format template inputs");
+      const fixed = module.exports.entry(params, {"Доска": "Dacha.md", "Тег": "#dacha-task"});
+      for (let i = 0; i < 20; i++) await Promise.resolve();
+      fillName("Задача на даче"); await fixed;
+      if (![...files.keys()].some((path) => path.startsWith("Dacha/Задача на даче — "))) throw new Error("QuickAdd direct board creation failed");
+    }, script);
+  }
+  console.log("Card actions passed: naming, duplicates, timestamps, titles, subtask links, QuickAdd API, archive confirmation and scope.");
+} finally {
+  await browser.close();
+}

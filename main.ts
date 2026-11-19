@@ -25,6 +25,7 @@ import type {
   TableColumn,
   TableSort,
 } from "./types";
+import { cardBasename, creationTimestamp } from "./card-naming";
 const EMPTY_FACET_VALUE = " __bn_empty__";
 
 export default class BoardNotesPlugin extends Plugin {
@@ -1694,7 +1695,8 @@ export default class BoardNotesPlugin extends Plugin {
   setFrontmatterField(content: string, field: string, value: string): string {
     const fmMatch = content.match(/^---\r?\n([\s\S]*?)\r?\n---/);
     const escapedField = field.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    const fieldLineRe = new RegExp(`^${escapedField}:.*$`, "m");
+    // Replace nested placeholder mappings as well as scalar values.
+    const fieldLineRe = new RegExp(`^${escapedField}:[^\\r\\n]*(?:\\r?\\n[ \\t]+[^\\r\\n]*)*`, "m");
 
     if (!fmMatch) {
       return `---\n${field}: ${value}\n---\n${content}`;
@@ -1702,8 +1704,8 @@ export default class BoardNotesPlugin extends Plugin {
 
     const frontmatter = fmMatch[0];
     const updatedFrontmatter = fieldLineRe.test(frontmatter)
-      ? frontmatter.replace(fieldLineRe, `${field}: ${value}`)
-      : frontmatter.replace(/^---\r?\n/, `---\n${field}: ${value}\n`);
+      ? frontmatter.replace(fieldLineRe, () => `${field}: ${value}`)
+      : frontmatter.replace(/^---\r?\n/, () => `---\n${field}: ${value}\n`);
 
     return updatedFrontmatter + content.slice(frontmatter.length);
   }
@@ -1718,6 +1720,7 @@ export default class BoardNotesPlugin extends Plugin {
       [
         cfg.statusField,
         cfg.baseTaskField,
+        cfg.nameField ?? "Название",
         cfg.autoArchive?.statusChangedField,
         "created",
         "updated",
@@ -1733,9 +1736,43 @@ export default class BoardNotesPlugin extends Plugin {
     });
   }
 
-  async createCard(cfg: BoardConfig, status?: string, baseTask?: TFile) {
+  /** Shared entry point for QuickAdd and other integrations. */
+  async listBoards(): Promise<{ boardPath: string; tag: string; name: string }[]> {
+    const boards: { boardPath: string; tag: string; name: string }[] = [];
+    for (const file of this.app.vault.getMarkdownFiles()) {
+      // Board blocks are code sections; skip ordinary notes and credentials.
+      const sections = this.app.metadataCache.getFileCache(file)?.sections ?? [];
+      if (!sections.some((section) => section.type === "code")) continue;
+      const content = await this.app.vault.cachedRead(file);
+      for (const match of content.matchAll(/```board\r?\n([\s\S]*?)\r?\n```/g)) {
+        const cfg = this.parseConfig(match[1]);
+        if (cfg.tag) boards.push({ boardPath: file.path, tag: cfg.tag, name: file.basename });
+      }
+    }
+    return boards.sort((a, b) => a.name.localeCompare(b.name));
+  }
+
+  async createCardOnBoard(boardPath: string, tag: string, title?: string, formatTemplate?: (content: string) => Promise<string>) {
+    const board = this.app.vault.getAbstractFileByPath(boardPath);
+    if (!(board instanceof TFile)) throw new Error(`Доска не найдена: ${boardPath}`);
+    const content = await this.app.vault.read(board);
+    for (const match of content.matchAll(/```board\r?\n([\s\S]*?)\r?\n```/g)) {
+      const cfg = this.parseConfig(match[1]);
+      if (cfg.tag === tag) return this.createCard(cfg, cfg.flat ? undefined : cfg.columns[0], undefined, title, formatTemplate);
+    }
+    throw new Error(`Доска ${tag} не найдена в ${boardPath}`);
+  }
+
+  async createCard(cfg: BoardConfig, status?: string, baseTask?: TFile, title?: string, formatTemplate?: (content: string) => Promise<string>): Promise<TFile | null> {
+    const displayTitle = (title ?? await new Promise<string | null>((resolve) => {
+      new CardNameModal(this.app, resolve).open();
+    }))?.trim();
+    if (!displayTitle) return null;
+    const now = new Date();
+    const stamp = creationTimestamp(now);
+    const day = stamp.slice(0, 10);
     const folder = (cfg.folder ?? "").replace(/^\/+|\/+$/g, "");
-    const base = "Новая заметка";
+    const base = cardBasename(displayTitle, cfg.timestampFilenames ? stamp : undefined);
     let name = base;
     let n = 1;
     const cardPath = (cardName: string) =>
@@ -1744,7 +1781,7 @@ export default class BoardNotesPlugin extends Plugin {
       n += 1;
       name = `${base} ${n}`;
     }
-    const path = cardPath(name);
+    let path = cardPath(name);
 
     let content = status
       ? `---\n${cfg.statusField}: ${status}\n---\n${cfg.tag}\n`
@@ -1773,14 +1810,64 @@ export default class BoardNotesPlugin extends Plugin {
     if (cfg.autoArchive) {
       content = this.setFrontmatterField(content, cfg.autoArchive.statusChangedField, this.today());
     }
+    content = this.setFrontmatterField(content, cfg.nameField ?? "Название", JSON.stringify(displayTitle));
+    content = this.setFrontmatterField(content, "created", day);
+    content = this.setFrontmatterField(content, "updated", day);
+    // QuickAdd keeps its existing VALUE/DATE prompts before a file is written.
+    if (formatTemplate) content = await formatTemplate(content);
 
     try {
-      const file = await this.app.vault.create(path, content);
+      let file: TFile;
+      for (;;) {
+        try {
+          file = await this.app.vault.create(path, content);
+          break;
+        } catch (error) {
+          // Another add action may have created the same name while the template was read.
+          if (!this.app.vault.getAbstractFileByPath(path)) throw error;
+          n += 1;
+          path = cardPath(`${base} ${n}`);
+        }
+      }
       if (baseTask) await this.inheritSubtaskFields(cfg, baseTask, file);
       await this.app.workspace.getLeaf(baseTask ? "tab" : false).openFile(file);
+      return file;
     } catch (e) {
       new Notice("board-notes: не удалось создать заметку — " + e);
+      return null;
     }
+  }
+
+  archiveStatus(cfg: BoardConfig): string | undefined {
+    if (cfg.flat) return undefined;
+    return cfg.autoArchive?.target ?? cfg.columns.find((column) => /^(архив|archive)$/i.test(column));
+  }
+
+  /** Confirm a snapshot; do not delete cards added to the archive afterwards. */
+  confirmArchiveCleanup(cfg: BoardConfig, boardPath: string, onDone: () => void) {
+    const status = this.archiveStatus(cfg);
+    if (!status) return;
+    const cards = this.getCards(cfg, boardPath).filter((card) => String(card.fm[cfg.statusField] ?? "") === status);
+    if (!cards.length) {
+      new Notice("Архив пуст");
+      return;
+    }
+    new ArchiveCleanupModal(this.app, cards.length, status, async () => {
+      let removed = 0;
+      for (const card of cards) {
+        const current = this.getCards(cfg, boardPath).find((item) => item.file.path === card.file.path);
+        if (!current || String(current.fm[cfg.statusField] ?? "") !== status) continue;
+        if (typeof this.app.fileManager.trashFile === "function") {
+          await this.app.fileManager.trashFile(current.file);
+        } else {
+          // trashFile was introduced in Obsidian 1.6.6; older supported versions use local trash.
+          await this.app.vault.trash(current.file, false);
+        }
+        removed++;
+      }
+      new Notice(`Перемещено в корзину: ${removed}`);
+      onDone();
+    }).open();
   }
 
   serializeConfig(cfg: BoardConfig): string {
@@ -1843,6 +1930,66 @@ export default class BoardNotesPlugin extends Plugin {
     }
     return n;
   }
+}
+
+class CardNameModal extends Modal {
+  private result: string | null = null;
+
+  constructor(app: App, private finish: (value: string | null) => void) {
+    super(app);
+  }
+
+  onOpen() {
+    this.contentEl.createEl("h3", { text: "Новая карточка" });
+    const form = this.contentEl.createEl("form");
+    const input = form.createEl("input", { type: "text", placeholder: "Название карточки" });
+    input.setAttr("aria-label", "Название карточки");
+    input.style.width = "100%";
+    const footer = form.createDiv({ cls: "bn-settings-footer" });
+    footer.createEl("button", { type: "submit", text: "Создать", cls: "mod-cta" });
+    footer.createEl("button", { type: "button", text: "Отмена" }).addEventListener("click", () => this.close());
+    form.addEventListener("submit", (event) => {
+      event.preventDefault();
+      if (!input.value.trim()) { input.focus(); return; }
+      this.result = input.value.trim();
+      this.close();
+    });
+    input.focus();
+  }
+
+  onClose() {
+    this.finish(this.result);
+    this.contentEl.empty();
+  }
+}
+
+class ArchiveCleanupModal extends Modal {
+  constructor(app: App, private count: number, private status: string, private cleanup: () => Promise<void>) {
+    super(app);
+  }
+
+  onOpen() {
+    this.contentEl.createEl("h3", { text: "Очистить архив?" });
+    this.contentEl.createEl("p", { text: `Карточек в колонке «${this.status}»: ${this.count}. Они будут перемещены в корзину Obsidian согласно настройкам удаления файлов. Вложения останутся на месте.` });
+    const footer = this.contentEl.createDiv({ cls: "bn-settings-footer" });
+    const remove = footer.createEl("button", { text: "Переместить в корзину", cls: "mod-warning" });
+    const cancel = footer.createEl("button", { text: "Отмена" });
+    cancel.addEventListener("click", () => this.close());
+    remove.addEventListener("click", async () => {
+      remove.disabled = true;
+      cancel.disabled = true;
+      try {
+        await this.cleanup();
+        this.close();
+      } catch (error) {
+        new Notice(`Не удалось полностью очистить архив: ${error}`);
+        this.close();
+      }
+    });
+    cancel.focus();
+  }
+
+  onClose() { this.contentEl.empty(); }
 }
 
 /** `null` item = "clear the base task". */
@@ -1936,6 +2083,7 @@ class BoardSettingsModal extends Modal {
   private templateInput!: HTMLInputElement;
   private viewSelect!: HTMLSelectElement;
   private touchUpdatedInput!: HTMLInputElement;
+  private timestampFilenamesInput!: HTMLInputElement;
   private cardRatingInput!: HTMLInputElement;
   private cardRecInput!: HTMLInputElement;
   private columnRows: EditableRow[] = [];
@@ -2164,7 +2312,6 @@ class BoardSettingsModal extends Modal {
     }) as HTMLInputElement;
     const createBtn = tplRow.createEl("button", { text: "+ создать заметку" });
     createBtn.addEventListener("click", async () => {
-      const cards = this.plugin.getCards(this.cfg, this.boardPath);
       await this.plugin.createCard(this.cfg);
       this.close();
     });
@@ -2174,6 +2321,12 @@ class BoardSettingsModal extends Modal {
     this.viewSelect.createEl("option", { value: "kanban", text: "Доска" });
     this.viewSelect.createEl("option", { value: "table", text: "Таблица" });
     this.viewSelect.value = this.cfg.view;
+
+    const timestampRow = contentEl.createEl("label", { cls: "bn-settings-checkbox" });
+    this.timestampFilenamesInput = timestampRow.createEl("input", { type: "checkbox" });
+    this.timestampFilenamesInput.checked = this.cfg.timestampFilenames;
+    timestampRow.appendText(" Добавлять дату и время создания в имя файла");
+    contentEl.createEl("p", { cls: "bn-settings-hint", text: "На доске и в таблице остаётся короткое название. Настройка применяется к новым карточкам, включая созданные через QuickAdd." });
 
     const touchUpdatedRow = contentEl.createEl("label", { cls: "bn-settings-checkbox" });
     this.touchUpdatedInput = touchUpdatedRow.createEl("input", { type: "checkbox" }) as HTMLInputElement;
@@ -2304,6 +2457,13 @@ class BoardSettingsModal extends Modal {
     }) as HTMLInputElement;
     this.cardRecInput.setAttr("list", fieldSuggestionsId);
 
+    if (this.plugin.archiveStatus(this.cfg)) {
+      contentEl.createEl("h4", { text: "Архив" });
+      contentEl.createEl("p", { cls: "bn-settings-hint", text: "Удаление архивных карточек доступно только здесь и требует подтверждения." });
+      const cleanup = contentEl.createEl("button", { text: "Очистить архив…", cls: "mod-warning" });
+      cleanup.addEventListener("click", () => this.plugin.confirmArchiveCleanup(this.cfg, this.boardPath, () => this.close()));
+    }
+
     // Кнопки
     const footer = contentEl.createDiv({ cls: "bn-settings-footer" });
     const saveBtn = footer.createEl("button", { text: "Сохранить", cls: "mod-cta" });
@@ -2408,6 +2568,7 @@ class BoardSettingsModal extends Modal {
         template: newTemplate || undefined,
         view: this.viewSelect.value === "table" ? "table" : "kanban",
         touchUpdated: this.touchUpdatedInput.checked,
+        timestampFilenames: this.timestampFilenamesInput.checked,
         columns: newColumns,
         meta: newMeta,
         vocab: newVocab,
@@ -2515,6 +2676,7 @@ class NewBoardModal extends Modal {
     const cfg: BoardConfig = {
       tag,
       statusField: DEFAULT_STATUS_FIELD,
+      timestampFilenames: true,
       columns,
       folder: this.folderInput.value.trim() || undefined,
       template: this.templateInput.value.trim() || undefined,
